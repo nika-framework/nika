@@ -5,20 +5,30 @@ import (
 	"strconv"
 
 	"github.com/joho/godotenv"
+	"github.com/sajadweb/nika"
 )
 
 // Use LoadConfig to create one.
 type Config struct{}
 
+
 // LoadConfig loads the given .env file (or the default .env when path == "")
 // and returns a Config instance.
-func LoadConfig(path string) *Config {
-	if path == "" {
-		_ = godotenv.Load()
-	} else {
-		_ = godotenv.Load(path)
-	}
-	return &Config{}
+func Setup(app *nika.App, envPath string) *Config {
+    if envPath == "" {
+        _ = godotenv.Load()
+    } else {
+        _ = godotenv.Load(envPath)
+    }
+    
+    cfg := &Config{}
+    
+    // تزریق اتوماتیک به کانتینر فریمورک اصلی
+    // (شما باید متد SetContainer یا مشابه آن را در App عمومی کنید، 
+    // یا از یک متد UseDI استفاده کنید. ساده‌ترین راه اضافه کردن متد زیر در app.go است)
+    app.RegisterSingleton(cfg) 
+    
+    return cfg
 }
 
 // Get returns the environment variable value for key, or the provided default.
