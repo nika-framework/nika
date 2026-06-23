@@ -89,7 +89,6 @@ nav:
       - Modules: overview/modules.md
       - Middleware: overview/middleware.md
       - Exception filters: overview/exception-filters.md
-      - Pipes: overview/pipes.md
       - Guards: overview/guards.md
       - Interceptors: overview/interceptors.md
       - Custom decorators: overview/custom-decorators.md
