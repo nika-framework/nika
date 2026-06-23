@@ -1,0 +1,170 @@
+site_name: Nika Framework
+site_url: https://sajadweb.github.io/nika/
+site_description: Nika is a modern backend framework for Go, designed for scalability, clean architecture, and developer productivity.
+site_author: Sajad Mohammadi Nejad
+repo_url: https://github.com/sajadweb/nika
+repo_name: sajadweb/nika
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: red
+      accent: red
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: red
+      accent: red
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  logo: assets/logo.svg
+  favicon: assets/favicon.png
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/sajadweb/nika
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/thumb-up-outline
+          name: This page was helpful
+          data: 1
+          intent: positive
+        - icon: material/thumb-down-outline
+          name: This page could be improved
+          data: 0
+          intent: needs improvement
+
+plugins:
+  - search:
+      lang: en
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.snippets:
+      auto_append:
+        - includes/codehilite.css
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji
+  - admonition
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Introduction:
+      - Overview: index.md
+  - Overview:
+      - First steps: overview/first-steps.md
+      - Controllers: overview/controllers.md
+      - Providers: overview/providers.md
+      - Modules: overview/modules.md
+      - Middleware: overview/middleware.md
+      - Exception filters: overview/exception-filters.md
+      - Pipes: overview/pipes.md
+      - Guards: overview/guards.md
+      - Interceptors: overview/interceptors.md
+      - Custom decorators: overview/custom-decorators.md
+  - Fundamentals:
+      - Custom providers: fundamentals/custom-providers.md
+      - Dynamic modules: fundamentals/dynamic-modules.md
+      - Injection scopes: fundamentals/injection-scopes.md
+      - Circular dependency: fundamentals/circular-dependency.md
+      - Module reference: fundamentals/module-ref.md
+      - Lifecycle events: fundamentals/lifecycle-events.md
+      - Platform agnosticism: fundamentals/platform-agnosticism.md
+      - Testing: fundamentals/testing.md
+  - Techniques:
+      - Configuration: techniques/configuration.md
+      - Database: techniques/database.md
+      - Mongo: techniques/mongodb.md
+      - Validation: techniques/validation.md
+      - Caching: techniques/caching.md
+      - Serialization: techniques/serialization.md
+      - Versioning: techniques/versioning.md
+      - Task scheduling: techniques/task-scheduling.md
+      - Logging: techniques/logger.md
+      - Cookies: techniques/cookies.md
+      - Events: techniques/events.md
+      - Compression: techniques/compression.md
+      - File upload: techniques/file-upload.md
+      - Streaming files: techniques/streaming-files.md
+      - Session: techniques/session.md
+      - Performance: techniques/performance.md
+  - Security:
+      - Authentication: security/authentication.md
+      - Authorization: security/authorization.md
+      - Encryption and Hashing: security/encryption-and-hashing.md
+      - CORS: security/cors.md
+      - Rate limiting: security/rate-limiting.md
+  - GraphQL:
+      - Quick start: graphql/quick-start.md
+      - Resolvers: graphql/resolvers.md
+      - Mutations: graphql/mutations.md
+      - Subscriptions: graphql/subscriptions.md
+      - Scalars: graphql/scalars.md
+      - Directives: graphql/directives.md
+  - WebSockets:
+      - Gateways: websockets/gateways.md
+      - Adapters: websockets/adapter.md
+  - Microservices:
+      - Overview: microservices/basics.md
+      - Redis: microservices/redis.md
+      - NATS: microservices/nats.md
+      - RabbitMQ: microservices/rabbitmq.md
+      - Kafka: microservices/kafka.md
+      - gRPC: microservices/grpc.md
+  - CLI:
+      - Overview: cli/overview.md
+      - Workspaces: cli/monorepo.md
+      - Libraries: cli/libraries.md
+  - OpenAPI:
+      - Introduction: openapi/introduction.md
+      - Operations: openapi/operations.md
+  - Recipes:
+      - CRUD generator: recipes/crud-generator.md
+      - Hot reload: recipes/hot-reload.md
+      - Mongoose: recipes/mongodb.md
+      - Swagger: recipes/swagger.md
+      - Health checks: recipes/health-checks.md
+      - Prisma: recipes/prisma.md
+      - Serve static: recipes/serve-static.md
+  - FAQ:
+      - Global path prefix: faq/global-prefix.md
+      - Raw body: faq/raw-body.md
+      - Request lifecycle: faq/request-lifecycle.md
+      - Common errors: faq/common-errors.md
+  - Devtools:
+      - Overview: devtools/overview.md
+  - Examples:
+      - GitHub Examples: https://github.com/sajadweb/nika/tree/main/examples
+  - Migration guide: migration-guide.md
+
