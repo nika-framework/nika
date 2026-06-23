@@ -91,7 +91,6 @@ nav:
       - Exception filters: overview/exception-filters.md
       - Guards: overview/guards.md
       - Interceptors: overview/interceptors.md
-      - Custom decorators: overview/custom-decorators.md
   - Fundamentals:
       - Custom providers: fundamentals/custom-providers.md
       - Dynamic modules: fundamentals/dynamic-modules.md

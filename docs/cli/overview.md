@@ -1,12 +1,14 @@
 # CLI Overview
 
-> **Coming Soon** — A dedicated CLI tool is not yet implemented.
-
+ 
 The Nika CLI will provide scaffolding commands for creating modules, controllers, providers, and other boilerplate code.
 
 ## Planned Commands
 
 ```bash
+
+go install github.com/sajadweb/nika-cli@latest
+
 # Create a new Nika project
 nika new my-app
 
