@@ -114,7 +114,7 @@ func NewUserRepository(db *mongodb.MongoDB) *UserRepository {
 ### Available Methods
 
 #### Create Operations
-
+{% raw %}
 ```go
 // Create a single document
 user := &models.User{Name: "Alice", Email: "alice@example.com"}
@@ -126,10 +126,8 @@ err := userRepo.repo.CreateAndUpdate(ctx, user)
 // Save one (insert)
 err := userRepo.repo.SaveOne(ctx, user)
 
-// Insert many
-users := []models.User{{Name: "Alice"}, {Name: "Bob"}}
-err := userRepo.repo.InsertMany(ctx, users)
 ```
+{% endraw %}
 
 #### Read Operations
 
