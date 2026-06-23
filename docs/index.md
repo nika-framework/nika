@@ -41,6 +41,13 @@ Built on top of **[Gin](https://github.com/gin-gonic/gin)**, Nika leverages Gin'
 
 === "Install"
     ```bash
+    go install github.com/sajadweb/nika-cli@latest
+
+    nika new <app-name>
+    ```
+
+=== "Custom Install"
+    ```bash
     go get github.com/sajadweb/nika
     ```
 

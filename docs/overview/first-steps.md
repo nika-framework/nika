@@ -7,9 +7,15 @@ In this chapter, you will learn how to build a basic Nika application from scrat
 First, initialize a new Go module and install Nika:
 
 ```bash
-mkdir my-nika-app && cd my-nika-app
-go mod init my-nika-app
-go get github.com/sajadweb/nika
+go install github.com/sajadweb/nika-cli@latest
+
+nika new <app-name>
+
+cd <app-name>
+
+go mod tidy
+
+go run .
 ```
 
 ## Creating a Module
