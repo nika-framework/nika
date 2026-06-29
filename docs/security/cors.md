@@ -4,22 +4,27 @@ Cross-Origin Resource Sharing (CORS) allows you to control which domains can acc
 
 ## Current Approach
 
-Use `gin-contrib/cors`:
+Use the built-in `common/cors` wrapper, which abstracts `gin-contrib/cors` and provides validated configuration, sensible defaults, and DI integration.
 
-```bash
-go get github.com/gin-contrib/cors
-```
+### Basic Configuration (Allow All Origins)
 
-### Basic Configuration
+Useful for local development. By setting `AllowAllOrigins` to `true`, the wrapper automatically applies the necessary defaults.
 
 ```go
-import "github.com/gin-contrib/cors"
+import (
+	"log"
+	"github.com/sajadweb/nika/common/cors"
+)
 
 func main() {
     app := nika.NewApp()
 
-    // Allow all origins (development only)
-    app.Use(cors.Default())
+    _, err := cors.Setup(app, cors.Config{
+        AllowAllOrigins: true, // Equivalent to cors.Default()
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
 
     app.LoadModule(rootModule)
     app.Listen(":3000")
@@ -28,8 +33,10 @@ func main() {
 
 ### Custom Configuration
 
+Restrict access to specific domains, methods, and headers. If you omit `AllowMethods` or `AllowHeaders`, the module automatically injects standard secure defaults.
+
 ```go
-app.Use(cors.New(cors.Config{
+_, err := cors.Setup(app, cors.Config{
     AllowOrigins: []string{
         "http://localhost:3000",
         "https://myapp.com",
@@ -50,15 +57,21 @@ app.Use(cors.New(cors.Config{
     },
     AllowCredentials: true,
     MaxAge: 12 * time.Hour,
-}))
+})
+if err != nil {
+    log.Fatal(err)
+}
 ```
 
-### Dynamic Origin
+### Dynamic Origin Validation
+
+If you need to validate origins against a database or a complex regex, use `AllowOriginFunc`. 
+*(Note: When using `AllowOriginFunc`, you can safely set `AllowCredentials: true` without violating CORS specifications).*
 
 ```go
-app.Use(cors.New(cors.Config{
+_, err := cors.Setup(app, cors.Config{
     AllowOriginFunc: func(origin string) bool {
-        // Allow specific origins
+        // Example: Allow specific origins dynamically
         allowed := []string{
             "http://localhost:3000",
             "https://myapp.com",
@@ -73,12 +86,16 @@ app.Use(cors.New(cors.Config{
     AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
     AllowHeaders:     []string{"Content-Type", "Authorization"},
     AllowCredentials: true,
-}))
+})
+if err != nil {
+    log.Fatal(err)
+}
 ```
+
+> **Security Note:** The `cors.Setup` function includes built-in validation. For example, it will return an error if you try to set both `AllowAllOrigins: true` and `AllowCredentials: true` simultaneously, preventing your application from crashing at runtime.
 
 ## Status
 
 | Feature | Status |
 |---------|--------|
-| CORS middleware | ✅ Available via gin-contrib |
-| Built-in CORS support | ⏳ Planned |
+| Built-in CORS wrapper (`common/cors`) | ✅ Available |
