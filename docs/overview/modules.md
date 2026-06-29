@@ -134,20 +134,16 @@ my-app/
 ├── main.go
 ├── src/
 │   ├── app_module.go          # Root module
-│   ├── modules/
-│   │   ├── users/
-│   │   │   ├── users_module.go
-│   │   │   ├── user_controller.go
-│   │   │   ├── user_service.go
-│   │   │   └── user_repository.go
-│   │   ├── auth/
-│   │   │   ├── auth_module.go
-│   │   │   ├── auth_controller.go
-│   │   │   └── auth_service.go
-│   │   └── config/
-│   │       └── config_module.go
-│   └── dto/
-│       └── user_dto.go
+│   ├── users/
+│   │   ├── users_module.go
+│   │   ├── user_controller.go
+│   │   ├── user_service.go
+│   │   └── user_repository.go
+│   ├── auth/
+│   │   ├── auth_module.go
+│   │   ├── auth_controller.go
+│   └── └── auth_service.go
+│   
 ├── go.mod
 └── go.sum
 ```
