@@ -135,7 +135,13 @@ func buildMiddleware(core *limiter.Limiter, cfg Config) gin.HandlerFunc {
 				"success": false,
 				"error": gin.H{
 					"code":    statusCode,
-					"message": message,
+					"message": "RATE_LIMIT_ERROR",
+					"details": []gin.H{
+						{
+							"field":   "rate_limit",
+							"message": message,
+						},
+					},
 				},
 			})
 		}),
@@ -144,8 +150,14 @@ func buildMiddleware(core *limiter.Limiter, cfg Config) gin.HandlerFunc {
 				"success": false,
 				"error": gin.H{
 					"code":    http.StatusInternalServerError,
-					"message": err.Error(),
-				},
+					"message": "RATE_LIMIT_ERROR",
+					"details": []gin.H{
+						{
+							"field":   "rate_limit",
+							"message": err.Error(),
+						},
+					},
+				},  
 			})
 		}),
 	}

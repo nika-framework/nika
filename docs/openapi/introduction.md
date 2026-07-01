@@ -1,22 +1,31 @@
 # OpenAPI Introduction
 
-> **Coming Soon** — OpenAPI/Swagger support is not yet implemented.
-
 Nika plans to provide built-in OpenAPI documentation generation.
 
 ## Planned Design
 
 ```go
-// Planned: Swagger decorators via struct tags
+//Swagger decorators via struct tags
 type UserController struct {
-    // @Summary Get all users
-    // @Description Returns a list of users
-    // @Tags users
-    // @Accept json
-    // @Produce json
-    // @Success 200 {array} User
-    // @Router /users [get]
+   
     List func(*gin.Context) `route:"GET:/users"`
+}
+func NewUserController(service *UserService) *UserController {
+     ctrl := &UserController{service: service}
+     ctrl.List=ListHandler
+    return ctrl
+}
+
+// @Summary Get all users
+// @Description Returns a list of users
+// @Tags users
+// @Accept json
+// @Produce json
+// @Success 200 {array} User
+// @Router /users [get]
+func (ctrl *UserController) ListHandler(c *gin.Context) {
+    users := ctrl.service.FindAll()
+    c.JSON(http.StatusOK, users)
 }
 ```
 
@@ -25,12 +34,23 @@ type UserController struct {
 Use [swaggo/swag](https://github.com/swaggo/swag) with Gin:
 
 ```bash
-go install github.com/swaggo/swag/cmd/swag@latest
-go get -u github.com/swaggo/gin-swagger
-go get -u github.com/swaggo/files
+
+nika swagger init
+
+
+nika swagger init --dir ./cmd --output ./api/docs
+
+
+nika swagger init --parseDependency --parseInternal --parseDepth 200
+
+nika run --watch
 ```
 
 ```go
+import (
+    _ "NikaSamole/docs"
+    "github.com/sajadweb/nika/common/swagger"
+)
 // @title Nika API
 // @version 1.0
 // @description My Nika API
@@ -39,7 +59,9 @@ go get -u github.com/swaggo/files
 func main() {
     app := nika.NewApp()
 
-    app.Use(ginSwagger.WrapHandler(swaggerFiles.Handler))
+    swagger.Setup(app,swagger.Config{
+        Path:"swagger/*any"
+    })
     // ...
 }
 ```

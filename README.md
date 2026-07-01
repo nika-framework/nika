@@ -20,3 +20,7 @@ func main() {
 	app.Listen(":" + port)
 }
 ```
+## run docs
+```ssh
+mkdocs serve
+```

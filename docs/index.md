@@ -44,6 +44,10 @@ Built on top of **[Gin](https://github.com/gin-gonic/gin)**, Nika leverages Gin'
     go install github.com/sajadweb/nika-cli@latest
 
     nika new <app-name>
+
+    cd <app-name>
+
+    nika start --watch
     ```
 
 === "Custom Install"

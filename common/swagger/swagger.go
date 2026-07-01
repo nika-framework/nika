@@ -1,16 +1,22 @@
 package swagger
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/sajadweb/nika"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
-func Setup(route *gin.Engine) {
-	route.GET(
-		"/swagger/*any",
-		ginSwagger.WrapHandler(
-			swaggerFiles.Handler,
-		),
+type Config struct {
+	Path string
+}
+
+func Setup(app *nika.App, cfg *Config) {
+	var path = cfg.Path
+	if cfg.Path == "" {
+		path = "/swagger/*any"
+	}
+	app.GET(path, ginSwagger.WrapHandler(
+		swaggerFiles.Handler,
+	),
 	)
 }
