@@ -1,24 +1,30 @@
 package cors
 
 import (
-	"fmt"
 	"time"
 
-	"github.com/gin-contrib/cors"
+	ginCors "github.com/gin-contrib/cors" // Aliased to avoid package name collision
 	"github.com/gin-gonic/gin"
 	"github.com/sajadweb/nika"
 )
 
 // Config holds the CORS module configuration, fully decoupled from the underlying package.
+// This now includes ALL attributes from github.com/gin-contrib/cors.
 type Config struct {
-	AllowOrigins     []string
-	AllowAllOrigins  bool
-	AllowMethods     []string
-	AllowHeaders     []string
-	ExposeHeaders    []string
-	AllowCredentials bool
-	AllowOriginFunc  func(origin string) bool
-	MaxAge           time.Duration
+	AllowAllOrigins        bool
+	AllowOrigins           []string
+	AllowMethods           []string
+	AllowHeaders           []string
+	CustomSchemas          []string
+	ExposeHeaders          []string
+	AllowOriginFunc        func(origin string) bool
+	MaxAge                 time.Duration
+	AllowCredentials       bool
+	AllowPrivateNetwork    bool
+	AllowWildcard          bool
+	AllowBrowserExtensions bool
+	AllowWebSockets        bool
+	AllowFiles             bool
 }
 
 // Cors is the main module structure that holds the final Gin handler.
@@ -38,12 +44,9 @@ func Setup(app *nika.App, cfg Config) (*Cors, error) {
 
 // New handles the instantiation and validation of the configuration parameters.
 func New(cfg Config) (*Cors, error) {
-	if err := validateConfig(cfg); err != nil {
-		return nil, err
-	}
 
 	corsConfig := buildConfig(cfg)
-	handler := cors.New(corsConfig)
+	handler := ginCors.New(corsConfig) // Using the alias
 
 	return &Cors{
 		handler: handler,
@@ -55,45 +58,58 @@ func (c *Cors) Middleware() gin.HandlerFunc {
 	return c.handler
 }
 
-// validateConfig checks for logical configuration conflicts before building the middleware.
-func validateConfig(cfg Config) error {
-	// According to browser security specs and gin-contrib/cors documentation:
-	// AllowAllOrigins and AllowCredentials cannot be true at the same time.
-	if cfg.AllowAllOrigins && cfg.AllowCredentials {
-		return fmt.Errorf("cors: allowCredentials and allowAllOrigins cannot be true at the same time")
-	}
-	return nil
-}
-
 // buildConfig maps our internal config to the gin-contrib/cors config and injects default values.
-func buildConfig(cfg Config) cors.Config {
-	c := cors.Config{
-		AllowOrigins:     cfg.AllowOrigins,
-		AllowMethods:     cfg.AllowMethods,
-		AllowHeaders:     cfg.AllowHeaders,
-		ExposeHeaders:    cfg.ExposeHeaders,
-		AllowCredentials: cfg.AllowCredentials,
-		AllowOriginFunc:  cfg.AllowOriginFunc,
-		MaxAge:           cfg.MaxAge,
-	}
-
-	// Apply the flag to allow all origins
-	if cfg.AllowAllOrigins {
-		c.AllowAllOrigins = true
-	}
+func buildConfig(cfg Config) ginCors.Config { // Using the alias
+	c := ginCors.DefaultConfig()
 
 	// Inject default values (similar to cors.DefaultConfig()) if left empty
-	if len(c.AllowMethods) == 0 {
-		c.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+	if len(cfg.AllowOrigins) > 0 {
+		c.AllowOrigins = cfg.AllowOrigins
 	}
 
-	if len(c.AllowHeaders) == 0 {
-		c.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type"}
+	if len(cfg.AllowMethods) > 0 {
+		c.AllowMethods = cfg.AllowMethods
 	}
 
-	if c.MaxAge <= 0 {
-		// Default package max age (12 hours)
-		c.MaxAge = 12 * time.Hour
+	if len(cfg.AllowHeaders) > 0 {
+		c.AllowHeaders = cfg.AllowHeaders
+	}
+
+	if len(cfg.ExposeHeaders) > 0 {
+		c.ExposeHeaders = cfg.ExposeHeaders
+	}
+
+	if len(cfg.CustomSchemas) > 0 {
+		c.CustomSchemas = cfg.CustomSchemas
+	}
+
+	if cfg.AllowOriginFunc != nil {
+		c.AllowOriginFunc = cfg.AllowOriginFunc
+	}
+	if cfg.MaxAge > 0 {
+		c.MaxAge = cfg.MaxAge
+	}
+
+	if cfg.AllowCredentials {
+		c.AllowCredentials = cfg.AllowCredentials
+	}
+	if cfg.AllowPrivateNetwork {
+		c.AllowPrivateNetwork = cfg.AllowPrivateNetwork
+	}
+	if cfg.AllowWildcard {
+		c.AllowWildcard = cfg.AllowWildcard
+	}
+	if cfg.AllowBrowserExtensions {
+		c.AllowBrowserExtensions = cfg.AllowBrowserExtensions
+	}
+	if cfg.AllowWebSockets {
+		c.AllowWebSockets = cfg.AllowWebSockets
+	}
+	if cfg.AllowFiles {
+		c.AllowFiles = cfg.AllowFiles
+	}
+	if cfg.AllowAllOrigins {
+		c.AllowAllOrigins = cfg.AllowAllOrigins
 	}
 
 	return c
