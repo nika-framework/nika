@@ -163,6 +163,6 @@ nav:
   - Devtools:
       - Overview: devtools/overview.md
   - Examples:
-      - GitHub Examples: https://github.com/sajadweb/nika/tree/main/examples
+      - GitHub Examples: https://github.com/sajadweb/nika-samples
   - Migration guide: migration-guide.md
 
