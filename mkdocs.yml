@@ -1,9 +1,9 @@
 site_name: Nika Framework
-site_url: https://sajadweb.github.io/nika/
+site_url: https://nika-framework.github.io/nika/
 site_description: Nika is a modern backend framework for Go, designed for scalability, clean architecture, and developer productivity.
 site_author: Sajad Mohammadi Nejad
 repo_url: https://github.com/nika-framework/nika
-repo_name: sajadweb/nika
+repo_name: nika-framework/nika
 edit_uri: edit/main/docs/
 
 theme:

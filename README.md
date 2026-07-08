@@ -1,5 +1,9 @@
 # Nika
 Nika is a modern backend framework for Go, designed for scalability, clean architecture, and developer productivity.
+## Documents
+
+[Click me](https://nika-framework.github.io/nika/)
+
 ## example
 ```go
 package main
