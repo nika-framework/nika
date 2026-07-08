@@ -5,7 +5,7 @@ import (
 	"regexp"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 )
 
 var (

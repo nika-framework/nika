@@ -70,7 +70,7 @@ func main() {
 
 ```go
 // Planned API (subject to change)
-import "github.com/sajadweb/nika/common/logger"
+import "github.com/nika-framework/nika/common/logger"
 
 func Setup(app *nika.App, cfg Config) *Logger {
     // Create structured logger

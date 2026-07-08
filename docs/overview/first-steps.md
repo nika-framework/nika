@@ -7,7 +7,7 @@ In this chapter, you will learn how to build a basic Nika application from scrat
 First, initialize a new Go module and install Nika:
 
 ```bash
-go install github.com/sajadweb/nika-cli@latest
+go install github.com/nika-framework/nika-cli@latest
 
 nika new <app-name>
 
@@ -27,7 +27,7 @@ package src
 
 import (
     "github.com/gin-gonic/gin"
-    "github.com/sajadweb/nika"
+    "github.com/nika-framework/nika"
 )
 
 // AppModule is the root module of the application
@@ -108,7 +108,7 @@ package main
 import (
     "fmt"
     "my-nika-app/src"
-    "github.com/sajadweb/nika"
+    "github.com/nika-framework/nika"
 )
 
 func main() {

@@ -32,7 +32,7 @@ package main
 import (
     "net/http"
     "github.com/gin-gonic/gin"
-    "github.com/sajadweb/nika"
+    "github.com/nika-framework/nika"
 )
 
 // 1. Define your module

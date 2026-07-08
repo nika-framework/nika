@@ -3,7 +3,7 @@ package cache
 import (
 	"fmt"
 
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 )
 
 type Cache struct {

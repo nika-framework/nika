@@ -128,4 +128,4 @@ func TestApp(t *testing.T) {
 | E2E testing utilities | ⏳ Planned |
 
 !!! info "Want to contribute?"
-    Testing utilities are open for contribution. Check out the [GitHub repository](https://github.com/sajadweb/nika) for guidelines.
+    Testing utilities are open for contribution. Check out the [GitHub repository](https://github.com/nika-framework/nika) for guidelines.

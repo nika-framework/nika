@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 	"github.com/ulule/limiter/v3"
 	limitgin "github.com/ulule/limiter/v3/drivers/middleware/gin"
 	"github.com/ulule/limiter/v3/drivers/store/memory"

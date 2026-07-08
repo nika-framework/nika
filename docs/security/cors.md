@@ -13,7 +13,7 @@ Useful for local development. By setting `AllowAllOrigins` to `true`, the wrappe
 ```go
 import (
 	"log"
-	"github.com/sajadweb/nika/common/cors"
+	"github.com/nika-framework/nika/common/cors"
 )
 
 func main() {

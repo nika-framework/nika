@@ -8,8 +8,8 @@ Nika provides a cache abstraction through the `common/cache` package with suppor
 package main
 
 import (
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/cache"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/cache"
 )
 
 func main() {
@@ -75,7 +75,7 @@ package src
 import (
     "context"
     "time"
-    "github.com/sajadweb/nika/common/cache"
+    "github.com/nika-framework/nika/common/cache"
 )
 
 type UserService struct {
@@ -172,8 +172,8 @@ import (
     "context"
     "fmt"
     "time"
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/cache"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/cache"
 )
 
 func main() {

@@ -5,16 +5,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/sajadweb/nika/releases">
+  <a href="https://github.com/nika-framework/nika/releases">
     <img src="https://img.shields.io/github/v/release/sajadweb/nika?style=flat-square" alt="Release" />
   </a>
-  <a href="https://github.com/sajadweb/nika/blob/main/LICENSE">
+  <a href="https://github.com/nika-framework/nika/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/sajadweb/nika?style=flat-square" alt="License" />
   </a>
   <a href="https://golang.org">
     <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go version" />
   </a>
-  <a href="https://github.com/sajadweb/nika">
+  <a href="https://github.com/nika-framework/nika">
     <img src="https://img.shields.io/github/stars/sajadweb/nika?style=flat-square" alt="Stars" />
   </a>
 </p>
@@ -41,7 +41,7 @@ Built on top of **[Gin](https://github.com/gin-gonic/gin)**, Nika leverages Gin'
 
 === "Install"
     ```bash
-    go install github.com/sajadweb/nika-cli@latest
+    go install github.com/nika-framework/nika-cli@latest
 
     nika new <app-name>
 
@@ -52,7 +52,7 @@ Built on top of **[Gin](https://github.com/gin-gonic/gin)**, Nika leverages Gin'
 
 === "Custom Install"
     ```bash
-    go get github.com/sajadweb/nika
+    go get github.com/nika-framework/nika
     ```
 
 === "Create an app"
@@ -61,7 +61,7 @@ Built on top of **[Gin](https://github.com/gin-gonic/gin)**, Nika leverages Gin'
 
     import (
         "fmt"
-        "github.com/sajadweb/nika"
+        "github.com/nika-framework/nika"
     )
 
     func main() {

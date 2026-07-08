@@ -23,7 +23,7 @@ type Module interface {
 ```go
 package src
 
-import "github.com/sajadweb/nika"
+import "github.com/nika-framework/nika"
 
 type UsersModule struct{}
 
@@ -56,7 +56,7 @@ The **root module** is the entry point of your application. It imports all featu
 ```go
 package src
 
-import "github.com/sajadweb/nika"
+import "github.com/nika-framework/nika"
 
 type AppModule struct{}
 

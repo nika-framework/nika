@@ -5,7 +5,7 @@ import (
 
 	ginCors "github.com/gin-contrib/cors" // Aliased to avoid package name collision
 	"github.com/gin-gonic/gin"
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 )
 
 // Config holds the CORS module configuration, fully decoupled from the underlying package.

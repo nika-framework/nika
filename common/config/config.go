@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	"github.com/joho/godotenv"
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 )
 
 // Use LoadConfig to create one.

@@ -1,7 +1,7 @@
 package swagger
 
 import (
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )

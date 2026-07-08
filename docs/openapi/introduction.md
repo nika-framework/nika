@@ -49,7 +49,7 @@ nika run --watch
 ```go
 import (
     _ "NikaSamole/docs"
-    "github.com/sajadweb/nika/common/swagger"
+    "github.com/nika-framework/nika/common/swagger"
 )
 // @title Nika API
 // @version 1.0

@@ -12,8 +12,8 @@ Pass the limiter parameters when calling `Setup()`:
 import (
     "time"
 
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/ratelimit"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/ratelimit"
 )
 
 func main() {

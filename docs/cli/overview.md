@@ -7,7 +7,7 @@ The Nika CLI will provide scaffolding commands for creating modules, controllers
 
 ```bash
 
-go install github.com/sajadweb/nika-cli@latest
+go install github.com/nika-framework/nika-cli@latest
 
 # Create a new Nika project
 nika new my-app

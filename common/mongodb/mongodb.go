@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )

@@ -6,7 +6,7 @@ package main
 
 import (
 	"fmt" 
-	"github.com/sajadweb/nika" 
+	"github.com/nika-framework/nika" 
 )
 
 func main() { 

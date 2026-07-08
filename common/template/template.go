@@ -3,7 +3,7 @@ package template
 import (
 	"html/template"
  
-	"github.com/sajadweb/nika"
+	"github.com/nika-framework/nika"
 )
 
 type Template struct {

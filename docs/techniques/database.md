@@ -21,7 +21,7 @@ See the [Mongo](mongodb.md) section for complete MongoDB documentation.
 
 ```go
 // Planned API (subject to change)
-import "github.com/sajadweb/nika/common/sql"
+import "github.com/nika-framework/nika/common/sql"
 
 func Setup(app *nika.App, cfg sql.Config) (*sql.Database, error) {
     // Connect to SQL database

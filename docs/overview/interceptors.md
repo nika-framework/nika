@@ -82,4 +82,4 @@ app.Use(ResponseWrapper())
 | Response mapping | ⏳ Planned |
 
 !!! info "Want to contribute?"
-    This feature is open for contribution. Check out the [GitHub repository](https://github.com/sajadweb/nika) for guidelines.
+    This feature is open for contribution. Check out the [GitHub repository](https://github.com/nika-framework/nika) for guidelines.

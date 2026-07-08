@@ -104,4 +104,4 @@ func main() {
 | Multi-factor authentication | ⏳ Planned |
 
 !!! info "Want to contribute?"
-    This feature is open for contribution. Check out the [GitHub repository](https://github.com/sajadweb/nika).
+    This feature is open for contribution. Check out the [GitHub repository](https://github.com/nika-framework/nika).

@@ -8,8 +8,8 @@ Nika provides a powerful validation system through the `common/validator` packag
 package main
 
 import (
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/validator"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/validator"
 )
 
 func main() {

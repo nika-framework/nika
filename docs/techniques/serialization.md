@@ -7,7 +7,7 @@ Nika provides standardized JSON response helpers through the `common/response` p
 No setup is required — the `response` package provides standalone functions. Import and use directly:
 
 ```go
-import "github.com/sajadweb/nika/common/response"
+import "github.com/nika-framework/nika/common/response"
 ```
 
 ## Response Types

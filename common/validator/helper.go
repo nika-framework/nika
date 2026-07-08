@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/sajadweb/nika/common/response"
+	"github.com/nika-framework/nika/common/response"
 )
 
 // ValidateStruct validates a struct using the injected Validator's underlying

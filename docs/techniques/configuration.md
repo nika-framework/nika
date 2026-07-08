@@ -10,8 +10,8 @@ Install the config package and initialize it in your application:
 package main
 
 import (
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/config"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/config"
 )
 
 func main() {
@@ -54,7 +54,7 @@ Once `config.Setup()` is called, the `*config.Config` instance is available in t
 ```go
 package src
 
-import "github.com/sajadweb/nika/common/config"
+import "github.com/nika-framework/nika/common/config"
 
 type DatabaseService struct {
     config *config.Config
@@ -119,8 +119,8 @@ package main
 
 import (
     "fmt"
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/config"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/config"
 )
 
 func main() {

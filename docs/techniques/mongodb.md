@@ -5,7 +5,7 @@ Nika provides a complete MongoDB integration through the `common/mongodb` packag
 ## Installation
 
 ```bash
-go get github.com/sajadweb/nika
+go get github.com/nika-framework/nika
 # MongoDB driver is included as a dependency
 ```
 
@@ -17,8 +17,8 @@ go get github.com/sajadweb/nika
 package main
 
 import (
-    "github.com/sajadweb/nika"
-    "github.com/sajadweb/nika/common/mongodb"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/mongodb"
 )
 
 func main() {
@@ -94,8 +94,8 @@ package src
 
 import (
     "context"
-    "github.com/sajadweb/nika/common/mongodb"
-    "github.com/sajadweb/nika/common/mongodb/repository"
+    "github.com/nika-framework/nika/common/mongodb"
+    "github.com/nika-framework/nika/common/mongodb/repository"
     "go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -205,7 +205,7 @@ err := userRepo.repo.DeleteOne(ctx, bson.M{"email": "old@example.com"})
 ## Helper Functions
 
 ```go
-import "github.com/sajadweb/nika/common/mongodb/repository"
+import "github.com/nika-framework/nika/common/mongodb/repository"
 
 // Parse string to ObjectID
 id, err := repository.ParseObjectID("507f1f77bcf86cd799439011")
