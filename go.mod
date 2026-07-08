@@ -1,4 +1,4 @@
-module github.com/sajadweb/nika
+module github.com/nika-framework/nika
 
 go 1.25.0
 
