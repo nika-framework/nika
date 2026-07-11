@@ -75,6 +75,12 @@ func BadRequest(c *gin.Context, message string, details interface{}) {
 func UnprocessableEntity(c *gin.Context, message string, details interface{}) {
 	c.JSON(http.StatusUnprocessableEntity, NewError(http.StatusUnprocessableEntity, message, details))
 }
-func NotFoundRequest(c *gin.Context, code string, message string, details interface{}) {
+func NotFoundRequest(c *gin.Context, message string, details interface{}) {
 	c.JSON(http.StatusNotFound, NewError(http.StatusNotFound, message, details))
+}
+func UnauthorizedRequest(c *gin.Context, message string, details interface{}) {
+	c.AbortWithStatusJSON(http.StatusUnauthorized, NewError(http.StatusUnauthorized, message, details))
+}
+func ForbiddenRequest(c *gin.Context, message string, details interface{}) {
+	c.AbortWithStatusJSON(http.StatusForbidden, NewError(http.StatusForbidden, message, details))
 }

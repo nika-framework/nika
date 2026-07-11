@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"strconv"
 
@@ -22,17 +23,14 @@ func Setup(app *nika.App, envPath string) *Config {
     }
     
     cfg := &Config{}
-    
-    // تزریق اتوماتیک به کانتینر فریمورک اصلی
-    // (شما باید متد SetContainer یا مشابه آن را در App عمومی کنید، 
-    // یا از یک متد UseDI استفاده کنید. ساده‌ترین راه اضافه کردن متد زیر در app.go است)
-    app.RegisterSingleton(cfg) 
-    
+    if(app != nil) {
+   		 app.RegisterSingleton(cfg) 
+	}
     return cfg
 }
 
-// Get returns the environment variable value for key, or the provided default.
-func (c *Config) Get(key string, defaultValue ...string) string {
+// GetString returns the environment variable value for key, or the provided default.
+func (c *Config) GetString(key string, defaultValue ...string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
 	}
@@ -44,7 +42,7 @@ func (c *Config) Get(key string, defaultValue ...string) string {
 
 // GetInt returns the environment variable parsed as int, or the provided default.
 func (c *Config) GetInt(key string, defaultValue ...int) int {
-	s := c.Get(key)
+	s := c.GetString(key)
 	if s == "" {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
@@ -63,7 +61,7 @@ func (c *Config) GetInt(key string, defaultValue ...int) int {
 
 // GetBool returns the environment variable parsed as bool, or the provided default.
 func (c *Config) GetBool(key string, defaultValue ...bool) bool {
-	s := c.Get(key)
+	s := c.GetString(key)
 	if s == "" {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
@@ -78,4 +76,17 @@ func (c *Config) GetBool(key string, defaultValue ...bool) bool {
 		return false
 	}
 	return b
+}
+// Get tries to parse the environment variable as JSON and unmarshal it into type T.
+// If the variable is empty or parsing fails, defaultValue is returned.
+func Get[T any](c *Config,key string, defaultValue T) T {
+	s := c.GetString(key)
+	if s == "" {
+		return defaultValue
+	}
+	var result T
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
+		return defaultValue
+	}
+	return result
 }
