@@ -258,3 +258,27 @@ myDB := db.Database("analytics")
 // Get a specific collection
 usersCol := db.Collection("myapp", "users")
 ```
+
+## Automatic `_id` Injection
+
+When you call `Create`, MongoDB generates the `_id` for the inserted document. Nika automatically writes the generated `_id` back into your struct field so you can use it immediately:
+
+```go
+user := &models.User{Name: "Alice"}
+created, _ := userRepo.repo.Create(ctx, user)
+
+fmt.Println(created.ID) // → primitive.ObjectID, populated by the driver
+```
+
+The injection looks for the first struct field that is either:
+
+- tagged with `bson:"_id"` (or `bson:"_id,..."`), or
+- named `ID`, `Id`, `ObjectID`, or `ObjectId`.
+
+It then assigns the value respecting the field's type (`primitive.ObjectID`, `string`, `interface{}`, ...). If no suitable field is found, the value is left unchanged. This is a single-pass reflection lookup at insert time — no extra database round-trips.
+
+## Performance Notes
+
+- `Create` no longer marshals/unmarshals the document multiple times just to set `_id`; the ID is injected directly via reflection.
+- `FindAll` treats a `nil` filter and an empty filter the same way — both run an unfiltered query.
+- `Pages` uses a single `$facet` aggregation so the total count and the page data are fetched in one round-trip.

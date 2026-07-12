@@ -13,7 +13,6 @@ func (r *BaseRepository[T]) FindOne(
 	filter Filter,
 ) (*T, error) {
 	var result T
-	println("filter", filter)
 	err := r.Collection.
 		FindOne(ctx, filter).
 		Decode(&result)
@@ -32,7 +31,7 @@ func (r *BaseRepository[T]) FindOneByID(
 	ctx context.Context,
 	id primitive.ObjectID,
 ) (*T, error) {
-	var result T 
+	var result T
 	err := r.Collection.FindOne(ctx, bson.M{"_id": id}).Decode(&result)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {

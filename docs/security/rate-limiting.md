@@ -94,3 +94,40 @@ ratelimit.Setup(app, ratelimit.Config{
 | Per-route rate limits | ✅ Use `Skip` or `Middleware()` directly |
 | Rate limit headers | ✅ Implemented |
 | Built-in rate limiter | ✅ Implemented |
+| Custom key function | ✅ Implemented |
+| Conditional bypass (`Skip`) | ✅ Implemented |
+
+## Skipping Certain Routes
+
+The `Skip` option lets you bypass the limiter for specific requests (for example, health checks or static assets):
+
+```go
+ratelimit.Setup(app, ratelimit.Config{
+    Requests: 100,
+    Window:   time.Minute,
+    Driver:   ratelimit.DriverMemory,
+    Skip: func(c *gin.Context) bool {
+        // Don't rate-limit health checks
+        return c.Request.URL.Path == "/health"
+    },
+})
+```
+
+## Error Response Format
+
+When the limit is reached or an internal error occurs, the limiter responds with the standard Nika error shape:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": 429,
+    "message": "RATE_LIMIT_ERROR",
+    "details": [
+      { "field": "rate_limit", "message": "Too many requests" }
+    ]
+  }
+}
+```
+
+You can customize the status code (`StatusCode`) and the message (`Message`) in the config.

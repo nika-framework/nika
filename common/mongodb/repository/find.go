@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+
 	"go.mongodb.org/mongo-driver/bson"
 )
 
@@ -17,7 +18,7 @@ func (r *BaseRepository[T]) FindAll(
 	filter Filter,
 ) ([]T, error) {
 
-	if filter == nil {
+	if len(filter) == 0 {
 		filter = bson.M{}
 	}
 
@@ -26,8 +27,6 @@ func (r *BaseRepository[T]) FindAll(
 		filter,
 	)
 }
-
-
 
 func (r *BaseRepository[T]) FindWithAggregate(
 	ctx context.Context,
@@ -53,7 +52,6 @@ func (r *BaseRepository[T]) FindWithAggregate(
 
 	return result, nil
 }
- 
 
 func (r *BaseRepository[T]) FindByCondition(
 	ctx context.Context,

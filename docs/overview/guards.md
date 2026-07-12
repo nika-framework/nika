@@ -1,113 +1,190 @@
 # Guards
 
-> **Coming Soon** — This feature is not yet implemented.
-
 Guards determine whether a given request will be handled by the route handler or not, based on conditions like roles, permissions, or authentication status.
 
-## Planned Design
+Nika implements guards as lightweight **function-based middleware** that you register by name and attach to controller handlers declaratively using struct tags. Guards run **before** the route handler and may abort the request.
+
+## How It Works
+
+A guard is a function that accepts a list of string arguments (parsed from the tag) and returns a `gin.HandlerFunc`:
 
 ```go
-// Planned API (subject to change)
-type Guard interface {
-    CanActivate(ctx *gin.Context) bool
-}
+type GuardFunc func(args []string) gin.HandlerFunc
+```
 
-type AuthGuard struct {
-    jwtService *JWTService
-}
+1. You register a guard with `app.AddGuard(name, fn)`.
+2. You attach one or more guards to a controller method via the `guard` struct tag.
+3. On startup, `RegisterControllers` parses the tag, resolves each named guard, builds the middlewares (passing the args), and chains them **before** the handler.
 
-func (g *AuthGuard) CanActivate(ctx *gin.Context) bool {
-    token := ctx.GetHeader("Authorization")
-    if token == "" {
-        return false
-    }
-    // Validate token
-    claims, err := g.jwtService.Parse(token)
-    if err != nil {
-        return false
-    }
-    ctx.Set("user", claims)
-    return true
-}
+## Registering a Guard
 
-type RolesGuard struct {
-    AllowedRoles []string
-}
+```go
+package src
 
-func (g *RolesGuard) CanActivate(ctx *gin.Context) bool {
-    user, exists := ctx.Get("user")
-    if !exists {
-        return false
-    }
-    // Check if user's role is in AllowedRoles
-    return true
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/nika-framework/nika"
+    "github.com/nika-framework/nika/common/response"
+)
+
+func RegisterGuards(app *nika.App) {
+    app.AddGuard("auth", func(args []string) gin.HandlerFunc {
+        return func(c *gin.Context) {
+            token := c.GetHeader("Authorization")
+            if token == "" {
+                response.UnauthorizedRequest(c, "UNAUTHORIZED", "missing token")
+                return
+            }
+            // Validate token and store claims in context...
+            c.Set("user", "example-user")
+            c.Next()
+        }
+    })
+
+    app.AddGuard("role", func(args []string) gin.HandlerFunc {
+        // args contains the roles parsed from the tag, e.g. ["admin", "editor"]
+        return func(c *gin.Context) {
+            user, exists := c.Get("user")
+            if !exists {
+                response.UnauthorizedRequest(c, "UNAUTHORIZED", "no user in context")
+                return
+            }
+
+            role := user.(UserClaims).Role
+            for _, allowed := range args {
+                if allowed == role {
+                    c.Next()
+                    return
+                }
+            }
+            response.ForbiddenRequest(c, "FORBIDDEN", "insufficient role")
+        }
+    })
 }
 ```
 
-## Current Alternative
+## Attaching Guards to a Controller
 
-Until Guards are implemented, use Gin middleware:
+Use the `guard` tag. Guards use the `Name(arg1, arg2, ...)` syntax. Multiple guards can be chained, and they run in the order they appear.
 
 ```go
-func AuthGuard() gin.HandlerFunc {
+type UserController struct {
+    userRepo *UserRepository
+
+    // No guard — public endpoint
+    GetProfile  func(*gin.Context) `route:"GET:/me" guard:""`
+
+    // Single guard
+    UpdateProfile func(*gin.Context) `route:"PUT:/me" guard:"auth"`
+
+    // Multiple guards with arguments
+    DeleteUser func(*gin.Context) `route:"DELETE:/users/:id" guard:"auth,role(admin)"`
+
+    // Multiple arguments separated by commas
+    ListAdmins func(*gin.Context) `route:"GET:/admins" guard:"auth,role(admin,editor)"`
+}
+```
+
+### Tag Syntax
+
+| Pattern | Meaning |
+|---------|---------|
+| `guard:"auth"` | Run the `auth` guard with no arguments |
+| `guard:"role(admin)"` | Run the `role` guard with the argument `admin` |
+| `guard:"role(admin,editor)"` | Run the `role` guard with arguments `admin` and `editor` |
+| `guard:"auth,role(admin)"` | Run `auth`, then `role(admin)` in order |
+| `guard:""` or omitted | No guard attached (public endpoint) |
+
+Arguments are split on commas and trimmed of surrounding whitespace.
+
+## Wiring It Up
+
+Register your guards **before** loading the module that contains the controllers, otherwise `RegisterControllers` will panic when it cannot find a referenced guard:
+
+```go
+func main() {
+    app := nika.NewApp()
+
+    // 1. Register guards first
+    src.RegisterGuards(app)
+
+    // 2. Then load modules/controllers
+    rootModule := src.NewAppModule()
+    app.LoadModule(rootModule)
+
+    app.Listen(":3000")
+}
+```
+
+If a guard referenced in a tag has not been registered, the application will panic at startup with a clear message:
+
+```
+❌ Guard 'auth' not registered. Use app.AddGuard('auth', ...)
+```
+
+## Practical Examples
+
+### JWT Authentication Guard
+
+```go
+app.AddGuard("jwt", func(args []string) gin.HandlerFunc {
     return func(c *gin.Context) {
-        token := c.GetHeader("Authorization")
-        if token == "" {
-            c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+        header := c.GetHeader("Authorization")
+        if len(header) < 8 || header[:7] != "Bearer " {
+            response.UnauthorizedRequest(c, "INVALID_TOKEN", "bearer token required")
             return
         }
 
-        // Validate token...
-        claims, err := validateToken(token)
+        claims, err := jwtService.Parse(header[7:])
         if err != nil {
-            c.AbortWithStatusJSON(401, gin.H{"error": "Invalid token"})
+            response.UnauthorizedRequest(c, "INVALID_TOKEN", err.Error())
             return
         }
 
         c.Set("user", claims)
         c.Next()
     }
-}
+})
+```
 
-func RoleGuard(allowedRoles ...string) gin.HandlerFunc {
+### Ownership Guard (with argument)
+
+```go
+app.AddGuard("owner", func(args []string) gin.HandlerFunc {
+    resource := args[0] // e.g. "post", "comment"
     return func(c *gin.Context) {
-        user, exists := c.Get("user")
-        if !exists {
-            c.AbortWithStatusJSON(401, gin.H{"error": "Unauthorized"})
+        id := c.Param("id")
+        user := c.MustGet("user").(UserClaims)
+
+        if !ownsResource(resource, id, user.ID) {
+            response.ForbiddenRequest(c, "FORBIDDEN", "you do not own this resource")
             return
         }
-
-        // Check role
-        role := user.(UserClaims).Role
-        allowed := false
-        for _, r := range allowedRoles {
-            if r == role {
-                allowed = true
-                break
-            }
-        }
-
-        if !allowed {
-            c.AbortWithStatusJSON(403, gin.H{"error": "Forbidden"})
-            return
-        }
-
         c.Next()
     }
-}
+})
 
-// Usage
-app.Use(AuthGuard())
+// Usage: guard:"jwt,owner(post)"
 ```
+
+## Guards vs Middleware
+
+| Aspect | Guards | Regular Middleware (`app.Use`) |
+|--------|--------|-------------------------------|
+| Scope | Per-route, declared via struct tag | Global, applied to all routes |
+| Configuration | Arguments parsed from the tag | Manual closure over variables |
+| Registration | Named, via `app.AddGuard` | Inline function |
+| Ordering | Declared left-to-right in the tag | Order of `app.Use` calls |
+
+Guards are compiled into the route's handler chain at registration time, so there is **no per-request reflection cost** — they run as fast as any other Gin middleware.
 
 ## Status
 
 | Feature | Status |
 |---------|--------|
-| Guard interface | ⏳ Planned |
-| Global guards | ⏳ Planned |
-| Per-route/per-controller guards | ⏳ Planned |
-| Role-based access control | ⏳ Planned |
-
-!!! info "Want to contribute?"
-    This feature is open for contribution. Check out the [GitHub repository](https://github.com/nika-framework/nika) for guidelines.
+| Named function guards | ✅ Implemented |
+| Guard arguments via tag | ✅ Implemented |
+| Multiple guards per route | ✅ Implemented |
+| Ordered guard chains | ✅ Implemented |
+| Global guards via middleware | ✅ Use `app.Use` |
+| Role-based access control | ✅ Implementable with the `role` pattern |

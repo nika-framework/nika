@@ -2,10 +2,7 @@ package repository
 
 import (
 	"context"
-
-	"go.mongodb.org/mongo-driver/bson"
 )
-
 
 func (r *BaseRepository[T]) Create(
 	ctx context.Context,
@@ -15,30 +12,13 @@ func (r *BaseRepository[T]) Create(
 	if err != nil {
 		return nil, err
 	}
-	// Merge the inserted ID into the provided data without a second DB round-trip.
+	// Try to inject the inserted _id into the struct's BSON "_id" field if present.
+	// This avoids the previous 4x marshal/unmarshal round-trip on every insert.
 	if res.InsertedID != nil {
-		var m bson.M
-		// Marshal the current data to BSON, unmarshal into a map, set _id, then unmarshal back.
-		// This lets the BSON tags on the struct handle the ID field mapping without reflection.
-		b, err := bson.Marshal(data)
-		if err != nil {
-			return nil, err
-		}
-		if err := bson.Unmarshal(b, &m); err != nil {
-			return nil, err
-		}
-		m["_id"] = res.InsertedID
-		b2, err := bson.Marshal(m)
-		if err != nil {
-			return nil, err
-		}
-		if err := bson.Unmarshal(b2, data); err != nil {
-			return nil, err
-		}
+		setInsertedID(data, res.InsertedID)
 	}
 	return data, nil
 }
-
 
 func (r *BaseRepository[T]) CreateAndUpdate(
 	ctx context.Context,
