@@ -38,6 +38,12 @@ func GetSafeDate(m map[string]any, key string) time.Time {
 	return time.Now().UTC()
 }
 
+func GetSafeBool(m map[string]any, key string) bool {
+	if v, ok := m[key].(bool); ok {
+		return v
+	}
+	return false
+}
 // setInsertedID injects the MongoDB-generated _id into the struct field that is
 // tagged with bson:"_id" (or named Id/ObjectID). It mutates the value in-place
 // via reflection only once per insert, avoiding the previous marshal/unmarshal

@@ -11,12 +11,14 @@ type Module interface {
     Controllers() []interface{}
     Providers()   []interface{}
     Imports()     []Module
+    Exports()     []interface{}
 }
 ```
 
 - **Controllers()** — Returns the controllers (or their constructors) for this module
 - **Providers()** — Returns the providers (or their constructors) for this module
 - **Imports()** — Returns sub-modules to load recursively
+- **Exports()** — Returns providers that modules importing this module may inject
 
 ## Creating a Module
 
@@ -46,6 +48,10 @@ func (m *UsersModule) Providers() []interface{} {
 
 func (m *UsersModule) Imports() []nika.Module {
     return []nika.Module{}
+}
+
+func (m *UsersModule) Exports() []interface{} {
+    return []interface{}{}
 }
 ```
 
@@ -81,6 +87,10 @@ func (m *AppModule) Imports() []nika.Module {
         NewConfigModule(),
     }
 }
+
+func (m *AppModule) Exports() []interface{} {
+    return []interface{}{}
+}
 ```
 
 ## Feature Modules
@@ -111,6 +121,10 @@ func (m *AuthModule) Providers() []interface{} {
 func (m *AuthModule) Imports() []nika.Module {
     return []nika.Module{}
 }
+
+func (m *AuthModule) Exports() []interface{} {
+    return []interface{}{}
+}
 ```
 
 ## Module Loading Order
@@ -123,7 +137,7 @@ When `app.LoadModule(rootModule)` is called, Nika processes modules in the follo
 3. Resolve and register all Controllers
 ```
 
-This means providers from imported modules are available before the parent module's providers and controllers are resolved.
+This means exported providers from imported modules are available before the parent module's providers and controllers are resolved.
 
 ## Directory Structure
 
@@ -150,21 +164,23 @@ my-app/
 
 ## Shared Providers
 
-Since the DI container is **global**, providers registered in any module are available to all other modules:
+A module can expose selected providers to modules that import it. Private providers remain available only to their own module:
 
 ```go
-// In AppModule's Providers
-func (m *AppModule) Providers() []interface{} {
+// RoleModule
+func (m *RoleModule) Providers() []interface{} {
     return []interface{}{
-        NewDatabaseService, // Available to ALL modules
+        NewRoleRepository,
+        NewRoleService,
     }
 }
 
-// UserService in UsersModule can access DatabaseService
-func NewUserService(db *DatabaseService) *UserService {
-    return &UserService{db: db}
+func (m *RoleModule) Exports() []interface{} {
+    return []interface{}{NewRoleService}
 }
+
+// UserModule imports RoleModule and can inject *RoleService.
+// *RoleRepository remains private to RoleModule.
 ```
 
-!!! warning "Important"
-    Module import order matters for provider resolution. If module A depends on a provider from module B, module B must be imported **before** module A (or listed first in the `Imports()` slice).
+App-level singletons registered with `app.RegisterSingleton()` remain available to every module.

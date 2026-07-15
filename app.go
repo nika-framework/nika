@@ -11,9 +11,11 @@ import (
 type GuardFunc func(args []string) gin.HandlerFunc
 
 type App struct {
-	engine    *gin.Engine
-	container map[reflect.Type]interface{}
-	guards    map[string]GuardFunc
+	engine         *gin.Engine
+	container      map[reflect.Type]interface{}
+	guards         map[string]GuardFunc
+	moduleExports  map[reflect.Type]map[reflect.Type]interface{}
+	loadingModules map[reflect.Type]struct{}
 }
 
 func NewApp() *App {
@@ -22,8 +24,10 @@ func NewApp() *App {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	return &App{
-		engine:    gin.New(),
-		container: make(map[reflect.Type]interface{}),
-		guards:    make(map[string]GuardFunc),
+		engine:         gin.New(),
+		container:      make(map[reflect.Type]interface{}),
+		guards:         make(map[string]GuardFunc),
+		moduleExports:  make(map[reflect.Type]map[reflect.Type]interface{}),
+		loadingModules: make(map[reflect.Type]struct{}),
 	}
 }

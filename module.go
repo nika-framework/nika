@@ -1,7 +1,8 @@
 package nika
 
 type Module interface {
-    Controllers() []interface{}
-    Providers() []interface{}
-    Imports() []Module
+	Imports() []Module
+	Controllers() []interface{}
+	Providers() []interface{}
+	Exports() []interface{}
 }

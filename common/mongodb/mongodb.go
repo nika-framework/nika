@@ -18,32 +18,48 @@ type MongoDB struct {
 type Config struct {
 	URI      string
 	Database string
+	MaxPoolSize  *uint64          `json:"maxPoolSize"`  // Maximum number of connections in the connection pool
+    MinPoolSize  *uint64          `json:"minPoolSize"`  // Minimum number of connections in the connection pool
+    SocketTimeout *time.Duration `json:"socketTimeout"` // Timeout for socket operations
 }
 
 func Setup(app *nika.App, cfg Config) (*MongoDB, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+    defer cancel()
 
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.URI))
-	if err != nil {
-		return nil, fmt.Errorf("mongodb connect error: %w", err)
-	}
+    clientOptions := options.Client().ApplyURI(cfg.URI)
 
-	if err := client.Ping(ctx, nil); err != nil {
-		return nil, fmt.Errorf("mongodb ping error: %w", err)
-	}
+    if cfg.MaxPoolSize != nil {
+        clientOptions.SetMaxPoolSize(*cfg.MaxPoolSize)
+    }
+    
+    if cfg.MinPoolSize != nil {
+        clientOptions.SetMinPoolSize(*cfg.MinPoolSize)
+    }
+    
+    if cfg.SocketTimeout != nil {
+        clientOptions.SetSocketTimeout(*cfg.SocketTimeout)
+    }
 
-	db := &MongoDB{
-		Client: client,
-		database: cfg.Database,
-	}
+    client, err := mongo.Connect(ctx, clientOptions)
+    if err != nil {
+        return nil, fmt.Errorf("mongodb connect error: %w", err)
+    }
 
-	app.RegisterSingleton(db)
+    if err := client.Ping(ctx, nil); err != nil {
+        return nil, fmt.Errorf("mongodb ping error: %w", err)
+    }
 
-	app.RegisterSingleton(client.Database(cfg.Database))
-	
-	fmt.Println("✅ MongoDB connected")
-	return db, nil
+    db := &MongoDB{
+        Client:   client,
+        database: cfg.Database,
+    }
+
+    app.RegisterSingleton(db)
+    app.RegisterSingleton(client.Database(cfg.Database))
+
+    fmt.Println("✅ MongoDB connected")
+    return db, nil
 }
 
 func (m *MongoDB) Database(name string) *mongo.Database {

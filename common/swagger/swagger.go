@@ -7,7 +7,8 @@ import (
 )
 
 type Config struct {
-	Path string
+	Path                 string
+	PersistAuthorization bool
 }
 
 func Setup(app *nika.App, cfg *Config) {
@@ -17,6 +18,6 @@ func Setup(app *nika.App, cfg *Config) {
 	}
 	app.GET(path, ginSwagger.WrapHandler(
 		swaggerFiles.Handler,
-	),
-	)
+		ginSwagger.PersistAuthorization(cfg.PersistAuthorization),
+	))
 }
