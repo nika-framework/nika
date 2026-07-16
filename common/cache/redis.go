@@ -35,6 +35,10 @@ func (r *RedisProvider) Set(ctx context.Context, key string, value any, exp time
 	return r.client.Set(ctx, key, value, exp).Err()
 }
 
+func (r *RedisProvider) SetNX(ctx context.Context, key string, value any, exp time.Duration) (bool, error) {
+	return r.client.SetNX(ctx, key, value, exp).Result()
+}
+
 func (r *RedisProvider) Get(ctx context.Context, key string) (string, error) {
 	return r.client.Get(ctx, key).Result()
 }

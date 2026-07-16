@@ -49,6 +49,35 @@ func (f *FileProvider) Set(ctx context.Context, key string, value any, exp time.
 	)
 }
 
+func (f *FileProvider) SetNX(ctx context.Context, key string, value any, exp time.Duration) (bool, error) {
+	item := FileItem{
+		Value: value.(string),
+	}
+	if exp == 0 {
+		item.NoExpiry = true
+	} else {
+		item.ExpiresAt = time.Now().Add(exp)
+	}
+	data, err := json.Marshal(item)
+	if err != nil {
+		return false, err
+	}
+
+	file, err := os.OpenFile(filepath.Join(f.path, key+".json"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if os.IsExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+
+	if _, err := file.Write(data); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (f *FileProvider) Get(ctx context.Context, key string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(f.path, key+".json"))
 	if err != nil {
