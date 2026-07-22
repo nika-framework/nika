@@ -1,6 +1,6 @@
 # Workspaces (Monorepo)
 
-> **Coming Soon** — Monorepo support is not yet implemented.
+> **Not implemented** — Monorepo workspace support is not available in the current CLI.
 
 Monorepo workspaces allow you to manage multiple related Nika projects in a single repository.
 

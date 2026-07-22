@@ -1,6 +1,6 @@
 # Libraries
 
-> **Coming Soon** — Library packaging support is not yet implemented.
+> **Not implemented** — Library packaging support is not available in the current CLI.
 
 Libraries allow you to create reusable Nika modules that can be shared across projects.
 
