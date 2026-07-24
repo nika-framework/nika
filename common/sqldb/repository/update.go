@@ -13,11 +13,11 @@ func (r *BaseRepository[T, ID]) UpdateOneByID(ctx context.Context, id ID, data F
 	setClause, setArgs := r.buildSetClause(data, 0)
 
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s = $%d",
+		"UPDATE %s SET %s WHERE %s = %s",
 		r.TableName,
 		setClause,
 		r.IDColumn,
-		len(setArgs)+1,
+		r.Dialect.placeholder(len(setArgs)+1),
 	)
 
 	args := append(setArgs, id)
@@ -30,6 +30,12 @@ func (r *BaseRepository[T, ID]) UpdateOneByID(ctx context.Context, id ID, data F
 func (r *BaseRepository[T, ID]) UpdateOne(ctx context.Context, filter Filter, data Filter) error {
 	setClause, setArgs := r.buildSetClause(data, 0)
 	whereClause, whereArgs := r.buildWhere(filter, len(setArgs))
+	if r.Dialect == DialectMySQL {
+		query := fmt.Sprintf("UPDATE %s SET %s %s LIMIT 1", r.TableName, setClause, whereClause)
+		args := append(setArgs, whereArgs...)
+		_, err := r.DB.ExecContext(ctx, query, args...)
+		return err
+	}
 
 	// Use subquery to update only one row
 	query := fmt.Sprintf(
@@ -48,21 +54,78 @@ func (r *BaseRepository[T, ID]) UpdateOne(ctx context.Context, filter Filter, da
 }
 
 // UpdateAndFindOne updates a record and returns the updated version.
+// On PostgreSQL, this is a single atomic statement via RETURNING.
+// On MySQL/SQLite, the update+select happen inside a transaction to keep
+// consistency under concurrent writers.
 func (r *BaseRepository[T, ID]) UpdateAndFindOne(ctx context.Context, filter Filter, data Filter) (*T, error) {
-	setClause, setArgs := r.buildSetClause(data, 0)
-	whereClause, whereArgs := r.buildWhere(filter, len(setArgs))
+	if r.Dialect.supportsReturning() {
+		setClause, setArgs := r.buildSetClause(data, 0)
+		whereClause, whereArgs := r.buildWhere(filter, len(setArgs))
+		query := fmt.Sprintf(
+			"UPDATE %s SET %s %s RETURNING %s",
+			r.TableName,
+			setClause,
+			whereClause,
+			r.columnsString(),
+		)
+		args := append(setArgs, whereArgs...)
+		row := r.DB.QueryRowContext(ctx, query, args...)
+		return r.scanRow(row)
+	}
 
-	query := fmt.Sprintf(
-		"UPDATE %s SET %s %s RETURNING %s",
-		r.TableName,
-		setClause,
-		whereClause,
-		r.columnsString(),
-	)
+	return WithTransactionResult(ctx, r.DB, func(tx *sql.Tx) (*T, error) {
+		// Lock/select first to pin the row we are updating.
+		selectSet, selectArgs := r.buildWhere(filter, 0)
+		selectQuery := fmt.Sprintf(
+			"SELECT %s FROM %s %s LIMIT 1",
+			r.columnsString(),
+			r.TableName,
+			selectSet,
+		)
+		row := tx.QueryRowContext(ctx, selectQuery, selectArgs...)
+		existing, err := r.scanRow(row)
+		if err != nil || existing == nil {
+			return existing, err
+		}
 
-	args := append(setArgs, whereArgs...)
-	row := r.DB.QueryRowContext(ctx, query, args...)
-	return r.scanRow(row)
+		id, hasID := r.modelID(existing)
+		setClause, setArgs := r.buildSetClause(data, 0)
+		var (
+			updateQuery string
+			updateArgs  []any
+		)
+		if hasID {
+			updateQuery = fmt.Sprintf(
+				"UPDATE %s SET %s WHERE %s = %s",
+				r.TableName,
+				setClause,
+				r.IDColumn,
+				r.Dialect.placeholder(len(setArgs)+1),
+			)
+			updateArgs = append(append([]any{}, setArgs...), id)
+		} else {
+			whereClause, whereArgs := r.buildWhere(filter, len(setArgs))
+			updateQuery = fmt.Sprintf("UPDATE %s SET %s %s", r.TableName, setClause, whereClause)
+			updateArgs = append(append([]any{}, setArgs...), whereArgs...)
+		}
+		if _, err := tx.ExecContext(ctx, updateQuery, updateArgs...); err != nil {
+			return nil, err
+		}
+
+		if hasID {
+			idQuery := fmt.Sprintf(
+				"SELECT %s FROM %s WHERE %s = %s LIMIT 1",
+				r.columnsString(),
+				r.TableName,
+				r.IDColumn,
+				r.Dialect.placeholder(1),
+			)
+			return r.scanRow(tx.QueryRowContext(ctx, idQuery, id))
+		}
+
+		row = tx.QueryRowContext(ctx, selectQuery, selectArgs...)
+		return r.scanRow(row)
+	})
 }
 
 // UpdateMany updates all records matching the filter. Returns the number of affected rows.
@@ -95,10 +158,11 @@ func (r *BaseRepository[T, ID]) Increment(ctx context.Context, filter Filter, co
 	whereClause, whereArgs := r.buildWhere(filter, 1)
 
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s = %s + $1 %s",
+		"UPDATE %s SET %s = %s + %s %s",
 		r.TableName,
 		column,
 		column,
+		r.Dialect.placeholder(1),
 		whereClause,
 	)
 
@@ -116,10 +180,11 @@ func (r *BaseRepository[T, ID]) Decrement(ctx context.Context, filter Filter, co
 	whereClause, whereArgs := r.buildWhere(filter, 1)
 
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s = %s - $1 %s",
+		"UPDATE %s SET %s = %s - %s %s",
 		r.TableName,
 		column,
 		column,
+		r.Dialect.placeholder(1),
 		whereClause,
 	)
 
@@ -155,17 +220,75 @@ func (r *BaseRepository[T, ID]) Upsert(ctx context.Context, data *T, conflictCol
 			updateParts = append(updateParts, fmt.Sprintf("%s = EXCLUDED.%s", col, col))
 		}
 	}
+	if len(updateParts) == 0 {
+		if r.Dialect == DialectMySQL {
+			updateParts = append(updateParts, fmt.Sprintf("%s = %s", r.IDColumn, r.IDColumn))
+		} else {
+			query := fmt.Sprintf(
+				"INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO NOTHING",
+				r.TableName,
+				strings.Join(cols, ", "),
+				r.Dialect.placeholders(1, len(cols)),
+				strings.Join(conflictColumns, ", "),
+			)
+			if r.Dialect.supportsReturning() {
+				row := r.DB.QueryRowContext(ctx, query+" RETURNING "+r.columnsString(), values...)
+				return r.scanRow(row)
+			}
+			result, err := r.DB.ExecContext(ctx, query, values...)
+			if err != nil {
+				return nil, err
+			}
+			if id, err := result.LastInsertId(); err == nil {
+				r.setGeneratedID(data, id)
+			}
+			return data, nil
+		}
+	}
+
+	if r.Dialect == DialectMySQL {
+		for i, col := range updateParts {
+			if !strings.Contains(col, "EXCLUDED.") {
+				continue
+			}
+			column := strings.SplitN(col, " = ", 2)[0]
+			updateParts[i] = fmt.Sprintf("%s = VALUES(%s)", column, column)
+		}
+		query := fmt.Sprintf(
+			"INSERT INTO %s (%s) VALUES (%s) ON DUPLICATE KEY UPDATE %s",
+			r.TableName,
+			strings.Join(cols, ", "),
+			r.Dialect.placeholders(1, len(cols)),
+			strings.Join(updateParts, ", "),
+		)
+		result, err := r.DB.ExecContext(ctx, query, values...)
+		if err != nil {
+			return nil, err
+		}
+		if id, err := result.LastInsertId(); err == nil {
+			r.setGeneratedID(data, id)
+		}
+		return data, nil
+	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s RETURNING %s",
+		"INSERT INTO %s (%s) VALUES (%s) ON CONFLICT (%s) DO UPDATE SET %s",
 		r.TableName,
 		strings.Join(cols, ", "),
-		placeholders(1, len(cols)),
+		r.Dialect.placeholders(1, len(cols)),
 		strings.Join(conflictColumns, ", "),
 		strings.Join(updateParts, ", "),
-		r.columnsString(),
 	)
-
-	row := r.DB.QueryRowContext(ctx, query, values...)
-	return r.scanRow(row)
+	if r.Dialect.supportsReturning() {
+		row := r.DB.QueryRowContext(ctx, query+" RETURNING "+r.columnsString(), values...)
+		return r.scanRow(row)
+	}
+	result, err := r.DB.ExecContext(ctx, query, values...)
+	if err != nil {
+		return nil, err
+	}
+	if id, err := result.LastInsertId(); err == nil {
+		r.setGeneratedID(data, id)
+	}
+	return data, nil
 }

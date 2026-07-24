@@ -54,7 +54,17 @@ type Config struct {
 
 // Setup creates a new SQL database connection, pings it, and registers it
 // as a singleton in the nika application container.
+//
+// NOTE: The database driver must be registered by importing its package
+// with a blank identifier in main (e.g. `_ "github.com/lib/pq"`).
 func Setup(app *nika.App, cfg Config) (*DB, error) {
+	if cfg.Driver == "" {
+		return nil, fmt.Errorf("sqldb: driver is required")
+	}
+	if cfg.DSN == "" {
+		return nil, fmt.Errorf("sqldb: dsn is required")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -63,24 +73,36 @@ func Setup(app *nika.App, cfg Config) (*DB, error) {
 		return nil, fmt.Errorf("sqldb open error: %w", err)
 	}
 
-	// Connection pool configuration
-	if cfg.MaxOpenConns > 0 {
-		conn.SetMaxOpenConns(cfg.MaxOpenConns)
+	// Connection pool configuration with production-safe defaults.
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 25
 	}
+	conn.SetMaxOpenConns(maxOpen)
 
-	if cfg.MaxIdleConns > 0 {
-		conn.SetMaxIdleConns(cfg.MaxIdleConns)
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = maxOpen / 2
+		if maxIdle < 2 {
+			maxIdle = 2
+		}
 	}
+	conn.SetMaxIdleConns(maxIdle)
 
 	if cfg.ConnMaxLifetime != nil {
 		conn.SetConnMaxLifetime(*cfg.ConnMaxLifetime)
+	} else {
+		conn.SetConnMaxLifetime(30 * time.Minute)
 	}
 
 	if cfg.ConnMaxIdleTime != nil {
 		conn.SetConnMaxIdleTime(*cfg.ConnMaxIdleTime)
+	} else {
+		conn.SetConnMaxIdleTime(5 * time.Minute)
 	}
 
 	if err := conn.PingContext(ctx); err != nil {
+		_ = conn.Close()
 		return nil, fmt.Errorf("sqldb ping error: %w", err)
 	}
 

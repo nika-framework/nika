@@ -8,9 +8,10 @@ import (
 // ExistsByID checks if a record with the given ID exists.
 func (r *BaseRepository[T, ID]) ExistsByID(ctx context.Context, id ID) (bool, error) {
 	query := fmt.Sprintf(
-		"SELECT EXISTS(SELECT 1 FROM %s WHERE %s = $1)",
+		"SELECT EXISTS(SELECT 1 FROM %s WHERE %s = %s)",
 		r.TableName,
 		r.IDColumn,
+		r.Dialect.placeholder(1),
 	)
 
 	var exists bool

@@ -4,28 +4,17 @@ import (
 	"context"
 
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func (r *BaseRepository[T]) ExistsByID(
-	ctx context.Context,
-	id primitive.ObjectID,
-) (bool, error) {
-	return r.ExistsByCondition(
-		ctx,
-		bson.M{"_id": id},
-	)
-}
-
-func (r *BaseRepository[T]) ExistsByCondition(
+// CountByCondition returns the exact number of documents matching filter.
+// For very large collections where an exact count is not required, prefer
+// r.Collection.EstimatedDocumentCount() directly.
+func (r *BaseRepository[T]) CountByCondition(
 	ctx context.Context,
 	filter Filter,
-) (bool, error) {
-
-	count, err := r.Collection.CountDocuments(
-		ctx,
-		filter,
-	)
-
-	return count > 0, err
+) (int64, error) {
+	if filter == nil {
+		filter = bson.M{}
+	}
+	return r.Collection.CountDocuments(ctx, filter)
 }

@@ -13,11 +13,13 @@ type BaseRepository[T any, ID comparable] struct {
 	DB        *sql.DB
 	TableName string
 	IDColumn  string // Primary key column name (default: "id")
+	Dialect   Dialect
 
 	// Cached reflection metadata – computed once on construction.
 	columns    []string
 	dbTagMap   map[string]int // db tag → struct field index
 	insertCols []string       // columns excluding auto-increment ID
+	autoID     bool
 }
 
 // NewBaseRepository creates a new BaseRepository with pre-computed struct metadata.
@@ -30,6 +32,24 @@ func NewBaseRepository[T any, ID comparable](
 	idColumn string,
 	autoIncrementID bool,
 ) *BaseRepository[T, ID] {
+	return NewBaseRepositoryWithDialect[T, ID](
+		db,
+		DialectPostgres,
+		tableName,
+		idColumn,
+		autoIncrementID,
+	)
+}
+
+// NewBaseRepositoryWithDialect creates a repository that emits syntax for the
+// configured PostgreSQL, MySQL, or SQLite connection.
+func NewBaseRepositoryWithDialect[T any, ID comparable](
+	db *sql.DB,
+	dialect Dialect,
+	tableName string,
+	idColumn string,
+	autoIncrementID bool,
+) *BaseRepository[T, ID] {
 	if idColumn == "" {
 		idColumn = "id"
 	}
@@ -38,7 +58,9 @@ func NewBaseRepository[T any, ID comparable](
 		DB:        db,
 		TableName: tableName,
 		IDColumn:  idColumn,
+		Dialect:   normalizeDialect(dialect),
 		dbTagMap:  make(map[string]int),
+		autoID:    autoIncrementID,
 	}
 
 	// Pre-compute struct field metadata via reflection (done once).
@@ -168,7 +190,7 @@ func (r *BaseRepository[T, ID]) buildWhere(filter Filter, startIdx int) (string,
 			continue
 		}
 		idx++
-		conditions = append(conditions, fmt.Sprintf("%s = $%d", col, idx))
+		conditions = append(conditions, fmt.Sprintf("%s = %s", col, r.Dialect.placeholder(idx)))
 		args = append(args, val)
 	}
 
@@ -183,18 +205,49 @@ func (r *BaseRepository[T, ID]) buildSetClause(data Filter, startIdx int) (strin
 
 	for col, val := range data {
 		idx++
-		setParts = append(setParts, fmt.Sprintf("%s = $%d", col, idx))
+		setParts = append(setParts, fmt.Sprintf("%s = %s", col, r.Dialect.placeholder(idx)))
 		args = append(args, val)
 	}
 
 	return strings.Join(setParts, ", "), args
 }
 
-// placeholders generates placeholder strings like $1, $2, $3 for the given count.
-func placeholders(start, count int) string {
-	parts := make([]string, count)
-	for i := 0; i < count; i++ {
-		parts[i] = fmt.Sprintf("$%d", start+i)
+func (r *BaseRepository[T, ID]) setGeneratedID(data *T, id int64) {
+	if !r.autoID {
+		return
 	}
-	return strings.Join(parts, ", ")
+
+	v := reflect.ValueOf(data)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return
+	}
+	v = v.Elem()
+	idx, ok := r.dbTagMap[r.IDColumn]
+	if !ok {
+		return
+	}
+	field := v.Field(idx)
+	value := reflect.ValueOf(id)
+	if field.CanSet() && value.Type().ConvertibleTo(field.Type()) {
+		field.Set(value.Convert(field.Type()))
+	}
+}
+
+func (r *BaseRepository[T, ID]) modelID(data *T) (ID, bool) {
+	var zero ID
+	if data == nil {
+		return zero, false
+	}
+
+	v := reflect.ValueOf(data)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return zero, false
+	}
+	v = v.Elem()
+	idx, ok := r.dbTagMap[r.IDColumn]
+	if !ok {
+		return zero, false
+	}
+	id, ok := v.Field(idx).Interface().(ID)
+	return id, ok
 }

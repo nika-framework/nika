@@ -8,10 +8,11 @@ import (
 // FindOneByID retrieves a single record by its primary key.
 func (r *BaseRepository[T, ID]) FindOneByID(ctx context.Context, id ID) (*T, error) {
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s WHERE %s = $1 LIMIT 1",
+		"SELECT %s FROM %s WHERE %s = %s LIMIT 1",
 		r.columnsString(),
 		r.TableName,
 		r.IDColumn,
+		r.Dialect.placeholder(1),
 	)
 
 	row := r.DB.QueryRowContext(ctx, query, id)

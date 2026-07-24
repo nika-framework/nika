@@ -64,13 +64,13 @@ func (r *BaseRepository[T, ID]) Pages(
 	nextIdx := len(args) + 1
 
 	query := fmt.Sprintf(
-		"SELECT %s FROM %s %s %s LIMIT $%d OFFSET $%d",
+		"SELECT %s FROM %s %s %s LIMIT %s OFFSET %s",
 		r.columnsString(),
 		r.TableName,
 		whereClause,
 		orderClause,
-		nextIdx,
-		nextIdx+1,
+		r.Dialect.placeholder(nextIdx),
+		r.Dialect.placeholder(nextIdx+1),
 	)
 
 	args = append(args, perPage, offset)
