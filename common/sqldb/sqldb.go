@@ -50,6 +50,34 @@ type Config struct {
 
 	// ConnMaxIdleTime sets the maximum amount of time a connection may be idle.
 	ConnMaxIdleTime *time.Duration `json:"connMaxIdleTime"`
+
+	// PingTimeout bounds the initial connectivity check. Defaults to
+	// defaultPingTimeout. It exists because sql.Open is lazy — it validates the
+	// DSN and returns without touching the network — so PingContext is the only
+	// place a wrong host or a firewall shows up, and it must not be able to hang
+	// bootstrap indefinitely.
+	PingTimeout *time.Duration `json:"pingTimeout"`
+}
+
+const defaultPingTimeout = 10 * time.Second
+
+// validate checks the driver against the drivers this package knows how to
+// generate SQL for. An unknown driver used to reach sql.Open and fail with the
+// opaque "unknown driver" panic path; naming the supported set is more useful.
+func (c Config) validate() error {
+	if c.DSN == "" {
+		return fmt.Errorf("sqldb: dsn is required")
+	}
+	switch c.Driver {
+	case DriverPostgres, DriverMySQL, DriverSQLite:
+		return nil
+	case "":
+		return fmt.Errorf("sqldb: driver is required (one of %q, %q, %q)",
+			DriverPostgres, DriverMySQL, DriverSQLite)
+	default:
+		return fmt.Errorf("sqldb: unsupported driver %q (supported: %q, %q, %q)",
+			c.Driver, DriverPostgres, DriverMySQL, DriverSQLite)
+	}
 }
 
 // Setup creates a new SQL database connection, pings it, and registers it
@@ -58,14 +86,15 @@ type Config struct {
 // NOTE: The database driver must be registered by importing its package
 // with a blank identifier in main (e.g. `_ "github.com/lib/pq"`).
 func Setup(app *nika.App, cfg Config) (*DB, error) {
-	if cfg.Driver == "" {
-		return nil, fmt.Errorf("sqldb: driver is required")
-	}
-	if cfg.DSN == "" {
-		return nil, fmt.Errorf("sqldb: dsn is required")
+	if err := cfg.validate(); err != nil {
+		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	pingTimeout := defaultPingTimeout
+	if cfg.PingTimeout != nil && *cfg.PingTimeout > 0 {
+		pingTimeout = *cfg.PingTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), pingTimeout)
 	defer cancel()
 
 	conn, err := sql.Open(string(cfg.Driver), cfg.DSN)
@@ -112,8 +141,16 @@ func Setup(app *nika.App, cfg Config) (*DB, error) {
 		dbName: cfg.Database,
 	}
 
-	app.RegisterSingleton(db)
-	app.RegisterSingleton(conn)
+	if app != nil {
+		app.RegisterSingleton(db)
+		app.RegisterSingleton(conn)
+
+		// Without this the pool outlived the app: in-flight queries were killed
+		// mid-statement when the process exited instead of draining.
+		app.OnShutdown(func(context.Context) error {
+			return conn.Close()
+		})
+	}
 
 	fmt.Printf("✅ SQL Database connected (%s)\n", cfg.Driver)
 	return db, nil

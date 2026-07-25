@@ -67,3 +67,4 @@ func (ctrl *ChatController) HandleWS(c *gin.Context) {
 
 !!! info "Want to contribute?"
     WebSocket support is open for contribution.
+

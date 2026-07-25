@@ -29,13 +29,35 @@ func TestDialectPlaceholders(t *testing.T) {
 
 func TestInClauseForDialect(t *testing.T) {
 	values := []string{"active", "pending"}
-	postgresClause, postgresArgs := InClauseForDialect(DialectPostgres, "status", 1, values)
-	if postgresClause != "status IN ($1, $2)" || len(postgresArgs) != 2 {
+	postgresClause, postgresArgs, err := InClauseForDialect(DialectPostgres, "status", 1, values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if postgresClause != `"status" IN ($1, $2)` || len(postgresArgs) != 2 {
 		t.Errorf("PostgreSQL IN clause = %q, args = %v", postgresClause, postgresArgs)
 	}
 
-	mysqlClause, mysqlArgs := InClauseForDialect(DialectMySQL, "status", 1, values)
-	if mysqlClause != "status IN (?, ?)" || len(mysqlArgs) != 2 {
+	mysqlClause, mysqlArgs, err := InClauseForDialect(DialectMySQL, "status", 1, values)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mysqlClause != "`status` IN (?, ?)" || len(mysqlArgs) != 2 {
 		t.Errorf("MySQL IN clause = %q, args = %v", mysqlClause, mysqlArgs)
+	}
+}
+
+func TestInClauseRejectsInjectedColumn(t *testing.T) {
+	if _, _, err := InClauseForDialect(DialectPostgres, "id) OR 1=1 --", 1, []int{1}); err == nil {
+		t.Fatal("expected an injected column name to be rejected")
+	}
+}
+
+func TestInClauseEmptyValues(t *testing.T) {
+	clause, args, err := InClauseForDialect(DialectPostgres, "status", 1, []string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if clause != "1 = 0" || args != nil {
+		t.Errorf("empty IN clause = %q, args = %v", clause, args)
 	}
 }

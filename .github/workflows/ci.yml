@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Integration-tagged files are excluded from the default build, so they can
+      # rot unnoticed. Vet them explicitly rather than discovering the breakage
+      # the next time someone tries to run one against a real broker.
+      - name: Vet integration builds
+        run: |
+          for tag in sqldb_integration redis_integration nats_integration \
+                     rabbitmq_integration kafka_integration; do
+            echo "--- $tag"
+            go vet -tags "$tag" ./...
+          done
+
+      - name: Test
+        run: go test -race -count=1 ./...
+
+      - name: Fuzz the wire decoders briefly
+        run: |
+          go test -run '^$' -fuzz FuzzPatternMatch    -fuzztime 30s ./common/microservice/
+          go test -run '^$' -fuzz FuzzDecodeEnvelope  -fuzztime 30s ./common/microservice/
+
+      - name: Benchmarks compile and run
+        run: go test -run '^$' -bench . -benchtime 10x ./...

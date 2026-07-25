@@ -157,7 +157,7 @@ func buildMiddleware(core *limiter.Limiter, cfg Config) gin.HandlerFunc {
 							"message": err.Error(),
 						},
 					},
-				},  
+				},
 			})
 		}),
 	}

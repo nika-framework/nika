@@ -83,17 +83,28 @@ func ToEndsWith(query string) string {
 
 // InClause generates a PostgreSQL parameterized IN clause for safe SQL queries.
 // Use InClauseForDialect when the query targets MySQL or SQLite.
-func InClause[T any](column string, startIdx int, values []T) (string, []any) {
+func InClause[T any](column string, startIdx int, values []T) (string, []any, error) {
 	return InClauseForDialect(DialectPostgres, column, startIdx, values)
 }
 
 // InClauseForDialect generates an IN clause using the placeholders required by
 // the selected PostgreSQL, MySQL, or SQLite driver.
-func InClauseForDialect[T any](dialect Dialect, column string, startIdx int, values []T) (string, []any) {
-	if len(values) == 0 {
-		return "1 = 0", nil // Always false condition
-	}
+//
+// column is validated and quoted: it used to be interpolated verbatim, so a
+// caller passing a request-derived column name injected SQL. An empty values
+// slice yields the always-false `1 = 0` rather than `IN ()`, which no engine
+// parses.
+func InClauseForDialect[T any](dialect Dialect, column string, startIdx int, values []T) (string, []any, error) {
 	dialect = normalizeDialect(dialect)
+
+	quoted, err := dialect.QuoteValidated(column)
+	if err != nil {
+		return "", nil, fmt.Errorf("in clause: %w", err)
+	}
+
+	if len(values) == 0 {
+		return "1 = 0", nil, nil // Always false condition
+	}
 
 	placeholderParts := make([]string, len(values))
 	args := make([]any, len(values))
@@ -103,6 +114,6 @@ func InClauseForDialect[T any](dialect Dialect, column string, startIdx int, val
 		args[i] = v
 	}
 
-	clause := fmt.Sprintf("%s IN (%s)", column, strings.Join(placeholderParts, ", "))
-	return clause, args
+	clause := fmt.Sprintf("%s IN (%s)", quoted, strings.Join(placeholderParts, ", "))
+	return clause, args, nil
 }

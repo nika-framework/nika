@@ -119,6 +119,7 @@ nav:
       - Session: techniques/session.md
       - Performance: techniques/performance.md
   - Security:
+      - Hardening: security/hardening.md
       - Authentication: security/authentication.md
       - Authorization: security/authorization.md
       - Encryption and Hashing: security/encryption-and-hashing.md
@@ -141,6 +142,7 @@ nav:
       - RabbitMQ: microservices/rabbitmq.md
       - Kafka: microservices/kafka.md
       - gRPC: microservices/grpc.md
+      - TCP: microservices/tcp.md
   - CLI:
       - Overview: cli/overview.md
       - nika new: cli/new.md

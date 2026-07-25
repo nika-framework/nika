@@ -12,21 +12,20 @@ import (
 // Use LoadConfig to create one.
 type Config struct{}
 
-
 // LoadConfig loads the given .env file (or the default .env when path == "")
 // and returns a Config instance.
 func Setup(app *nika.App, envPath string) *Config {
-    if envPath == "" {
-        _ = godotenv.Load()
-    } else {
-        _ = godotenv.Load(envPath)
-    }
-    
-    cfg := &Config{}
-    if(app != nil) {
-   		 app.RegisterSingleton(cfg) 
+	if envPath == "" {
+		_ = godotenv.Load()
+	} else {
+		_ = godotenv.Load(envPath)
 	}
-    return cfg
+
+	cfg := &Config{}
+	if app != nil {
+		app.RegisterSingleton(cfg)
+	}
+	return cfg
 }
 
 // GetString returns the environment variable value for key, or the provided default.
@@ -77,9 +76,10 @@ func (c *Config) GetBool(key string, defaultValue ...bool) bool {
 	}
 	return b
 }
+
 // Get tries to parse the environment variable as JSON and unmarshal it into type T.
 // If the variable is empty or parsing fails, defaultValue is returned.
-func Get[T any](c *Config,key string, defaultValue T) T {
+func Get[T any](c *Config, key string, defaultValue T) T {
 	s := c.GetString(key)
 	if s == "" {
 		return defaultValue

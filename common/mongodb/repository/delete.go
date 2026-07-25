@@ -10,7 +10,7 @@ import (
 func (r *BaseRepository[T]) DeleteByID(
 	ctx context.Context,
 	id primitive.ObjectID,
-) error { 
+) error {
 	_, err := r.Collection.DeleteOne(
 		ctx,
 		bson.M{"_id": id},
@@ -18,8 +18,6 @@ func (r *BaseRepository[T]) DeleteByID(
 
 	return err
 }
-
-
 
 func (r *BaseRepository[T]) DeleteMany(
 	ctx context.Context,

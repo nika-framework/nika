@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/nika-framework/nika/common/sqldb"
+	"github.com/nika-framework/nika/common/sqldb/repository"
 )
 
 // RunFn executes the seed inside an open transaction.
@@ -86,10 +87,30 @@ func sortSeeds(s []*Seed) {
 
 // Seeder applies seeds against a sqldb.DB.
 type Seeder struct {
-	db      *sqldb.DB
-	table   string
-	seeds   []*Seed
-	dialect sqldb.Driver
+	db          *sqldb.DB
+	table       string
+	quotedTable string
+	seeds       []*Seed
+	dialect     sqldb.Driver
+}
+
+// quoteTable validates and quotes the tracking-table name. It is interpolated
+// into DDL that cannot be parameterised, so anything other than a plain
+// identifier panics at startup rather than reaching the database.
+func quoteTable(driver sqldb.Driver, table string) string {
+	var d repository.Dialect
+	switch driver {
+	case sqldb.DriverMySQL:
+		d = repository.DialectMySQL
+	case sqldb.DriverSQLite:
+		d = repository.DialectSQLite
+	default:
+		d = repository.DialectPostgres
+	}
+	if err := repository.ValidateIdentifier(table); err != nil {
+		panic(fmt.Sprintf("nika/seed: invalid tracking table %q: %v", table, err))
+	}
+	return d.QuoteQualified(table)
 }
 
 // New returns a Seeder using the current process-wide registry.
@@ -102,17 +123,21 @@ func NewWith(db *sqldb.DB, seeds []*Seed) *Seeder {
 	sorted := make([]*Seed, len(seeds))
 	copy(sorted, seeds)
 	sortSeeds(sorted)
+	driver := db.Driver()
 	return &Seeder{
-		db:      db,
-		table:   "schema_seeds",
-		seeds:   sorted,
-		dialect: db.Driver(),
+		db:          db,
+		table:       "schema_seeds",
+		quotedTable: quoteTable(driver, "schema_seeds"),
+		seeds:       sorted,
+		dialect:     driver,
 	}
 }
 
 // WithTable overrides the tracking table.
+// It panics when name is not a plain SQL identifier.
 func (s *Seeder) WithTable(name string) *Seeder {
 	if name != "" {
+		s.quotedTable = quoteTable(s.dialect, name)
 		s.table = name
 	}
 	return s
@@ -126,17 +151,17 @@ func (s *Seeder) Ensure(ctx context.Context) error {
 		stmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     name TEXT PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-)`, s.table)
+)`, s.quotedTable)
 	case sqldb.DriverMySQL:
 		stmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     name VARCHAR(255) PRIMARY KEY,
     applied_at DATETIME(6) NOT NULL
-)`, s.table)
+)`, s.quotedTable)
 	default:
 		stmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
     name TEXT PRIMARY KEY,
     applied_at DATETIME NOT NULL
-)`, s.table)
+)`, s.quotedTable)
 	}
 	_, err := s.db.Conn.ExecContext(ctx, stmt)
 	if err != nil {
@@ -151,7 +176,7 @@ func (s *Seeder) AppliedNames(ctx context.Context) (map[string]struct{}, error) 
 		return nil, err
 	}
 	rows, err := s.db.Conn.QueryContext(ctx,
-		fmt.Sprintf("SELECT name FROM %s", s.table))
+		fmt.Sprintf("SELECT name FROM %s", s.quotedTable))
 	if err != nil {
 		return nil, fmt.Errorf("seed query: %w", err)
 	}
@@ -180,7 +205,9 @@ func (s *Seeder) Run(ctx context.Context) ([]string, error) {
 		if _, ok := applied[seed.Name]; ok && !seed.AlwaysRun {
 			continue
 		}
-		if err := s.runOne(ctx, seed); err != nil {
+		// A seed meant to run once claims its name exclusively, so a second
+		// process racing this one fails instead of duplicating the data.
+		if err := s.runOne(ctx, seed, !seed.AlwaysRun); err != nil {
 			return ran, fmt.Errorf("seed %q: %w", seed.Name, err)
 		}
 		ran = append(ran, seed.Name)
@@ -199,7 +226,9 @@ func (s *Seeder) RunOnly(ctx context.Context, names ...string) ([]string, error)
 		if _, ok := want[seed.Name]; !ok {
 			continue
 		}
-		if err := s.runOne(ctx, seed); err != nil {
+		// RunOnly is documented to run regardless of prior state, so it upserts
+		// the tracking row rather than claiming it exclusively.
+		if err := s.runOne(ctx, seed, false); err != nil {
 			return ran, fmt.Errorf("seed %q: %w", seed.Name, err)
 		}
 		ran = append(ran, seed.Name)
@@ -207,7 +236,7 @@ func (s *Seeder) RunOnly(ctx context.Context, names ...string) ([]string, error)
 	return ran, nil
 }
 
-func (s *Seeder) runOne(ctx context.Context, seed *Seed) error {
+func (s *Seeder) runOne(ctx context.Context, seed *Seed, exclusive bool) error {
 	tx, err := s.db.Conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -219,32 +248,52 @@ func (s *Seeder) runOne(ctx context.Context, seed *Seed) error {
 		}
 	}()
 
+	// Claim the seed name *before* running it. With a plain INSERT the primary
+	// key on name makes concurrent seeders mutually exclusive: the loser blocks
+	// on the row lock and then fails with a duplicate key, instead of inserting
+	// the same reference data a second time. Recording afterwards, as this used
+	// to, gave both processes a clear run at the body.
+	claim := insertAppliedStmt(s.dialect, s.quotedTable)
+	if !exclusive {
+		claim = upsertAppliedStmt(s.dialect, s.quotedTable)
+	}
+	if _, err := tx.ExecContext(ctx, claim, seed.Name, time.Now().UTC()); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("record applied: %w", err)
+	}
+
 	if err := seed.Run(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return err
 	}
 
-	upsert := upsertAppliedStmt(s.dialect, s.table)
-	if _, err := tx.ExecContext(ctx, upsert, seed.Name, time.Now().UTC()); err != nil {
-		_ = tx.Rollback()
-		return fmt.Errorf("record applied: %w", err)
-	}
 	return tx.Commit()
 }
 
-func upsertAppliedStmt(d sqldb.Driver, table string) string {
+// insertAppliedStmt claims a seed name exclusively — it fails if the name is
+// already recorded.
+func insertAppliedStmt(d sqldb.Driver, quotedTable string) string {
+	if d == sqldb.DriverPostgres {
+		return fmt.Sprintf("INSERT INTO %s (name, applied_at) VALUES ($1, $2)", quotedTable)
+	}
+	return fmt.Sprintf("INSERT INTO %s (name, applied_at) VALUES (?, ?)", quotedTable)
+}
+
+// quotedTable is validated and quoted by quoteTable; column names here are
+// literals in this file.
+func upsertAppliedStmt(d sqldb.Driver, quotedTable string) string {
 	switch d {
 	case sqldb.DriverPostgres:
 		return fmt.Sprintf(
 			"INSERT INTO %s (name, applied_at) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET applied_at = EXCLUDED.applied_at",
-			table)
+			quotedTable)
 	case sqldb.DriverMySQL:
 		return fmt.Sprintf(
 			"INSERT INTO %s (name, applied_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE applied_at = VALUES(applied_at)",
-			table)
+			quotedTable)
 	default:
 		return fmt.Sprintf(
 			"INSERT INTO %s (name, applied_at) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET applied_at = excluded.applied_at",
-			table)
+			quotedTable)
 	}
 }

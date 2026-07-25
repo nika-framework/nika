@@ -8,24 +8,33 @@ import (
 	"strings"
 )
 
+// insertQuery renders the INSERT statement. Column names come from the cached,
+// already-validated `db` tags, so nothing here can be influenced per call.
+func (r *BaseRepository[T, ID]) insertQuery() string {
+	return fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s)",
+		r.quotedTable,
+		strings.Join(r.quotedInsert, ", "),
+		r.Dialect.placeholders(1, len(r.insertCols)),
+	)
+}
+
 // Create inserts a new record and returns it with the generated ID (for auto-increment).
 func (r *BaseRepository[T, ID]) Create(ctx context.Context, data *T) (*T, error) {
 	if data == nil {
 		return nil, fmt.Errorf("create: data is nil")
 	}
+	if len(r.insertCols) == 0 {
+		return nil, fmt.Errorf("create: no insertable columns")
+	}
 
-	cols := r.insertCols
-	values := r.getStructValues(data, cols)
+	values := r.getValues(data, r.insertIdx)
+	query := r.insertQuery()
 
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
-		r.TableName,
-		strings.Join(cols, ", "),
-		r.Dialect.placeholders(1, len(cols)),
-	)
 	if r.Dialect.supportsReturning() {
 		row := r.DB.QueryRowContext(ctx, query+" RETURNING "+r.columnsString(), values...)
-		return r.scanRow(row)
+		// A write that returned no row is a failure, not an empty result.
+		return r.scanRowRequired(row)
 	}
 
 	result, err := r.DB.ExecContext(ctx, query, values...)
@@ -46,19 +55,16 @@ func (r *BaseRepository[T, ID]) CreateTx(ctx context.Context, tx *sql.Tx, data *
 	if tx == nil {
 		return nil, fmt.Errorf("create: tx is nil")
 	}
+	if len(r.insertCols) == 0 {
+		return nil, fmt.Errorf("create: no insertable columns")
+	}
 
-	cols := r.insertCols
-	values := r.getStructValues(data, cols)
+	values := r.getValues(data, r.insertIdx)
+	query := r.insertQuery()
 
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
-		r.TableName,
-		strings.Join(cols, ", "),
-		r.Dialect.placeholders(1, len(cols)),
-	)
 	if r.Dialect.supportsReturning() {
 		row := tx.QueryRowContext(ctx, query+" RETURNING "+r.columnsString(), values...)
-		return r.scanRow(row)
+		return r.scanRowRequired(row)
 	}
 
 	result, err := tx.ExecContext(ctx, query, values...)
@@ -76,6 +82,21 @@ func (r *BaseRepository[T, ID]) CreateTx(ctx context.Context, tx *sql.Tx, data *
 // have their own limits — we chunk under all of them.
 const insertBatchLimit = 500
 
+// insertManyQuery renders a multi-row INSERT for rowCount rows.
+func (r *BaseRepository[T, ID]) insertManyQuery(rowCount int) string {
+	colCount := len(r.insertCols)
+	valueParts := make([]string, rowCount)
+	for i := 0; i < rowCount; i++ {
+		valueParts[i] = "(" + r.Dialect.placeholders(i*colCount+1, colCount) + ")"
+	}
+	return fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES %s",
+		r.quotedTable,
+		strings.Join(r.quotedInsert, ", "),
+		strings.Join(valueParts, ", "),
+	)
+}
+
 // InsertMany inserts multiple records in one or more batches and returns
 // the total number of affected rows.
 func (r *BaseRepository[T, ID]) InsertMany(ctx context.Context, data []T) (int64, error) {
@@ -83,8 +104,7 @@ func (r *BaseRepository[T, ID]) InsertMany(ctx context.Context, data []T) (int64
 		return 0, nil
 	}
 
-	cols := r.insertCols
-	colCount := len(cols)
+	colCount := len(r.insertCols)
 	if colCount == 0 {
 		return 0, fmt.Errorf("insert many: no insertable columns")
 	}
@@ -97,29 +117,15 @@ func (r *BaseRepository[T, ID]) InsertMany(ctx context.Context, data []T) (int64
 		}
 		chunk := data[start:end]
 
-		valueParts := make([]string, 0, len(chunk))
 		args := make([]any, 0, len(chunk)*colCount)
-
 		for i := range chunk {
-			offset := i * colCount
-			valueParts = append(valueParts, fmt.Sprintf("(%s)", r.Dialect.placeholders(offset+1, colCount)))
-
 			v := reflect.ValueOf(&chunk[i]).Elem()
-			for _, col := range cols {
-				if idx, ok := r.dbTagMap[col]; ok {
-					args = append(args, v.Field(idx).Interface())
-				}
+			for _, idx := range r.insertIdx {
+				args = append(args, v.Field(idx).Interface())
 			}
 		}
 
-		query := fmt.Sprintf(
-			"INSERT INTO %s (%s) VALUES %s",
-			r.TableName,
-			strings.Join(cols, ", "),
-			strings.Join(valueParts, ", "),
-		)
-
-		result, err := r.DB.ExecContext(ctx, query, args...)
+		result, err := r.DB.ExecContext(ctx, r.insertManyQuery(len(chunk)), args...)
 		if err != nil {
 			return totalAffected, fmt.Errorf("insert many error: %w", err)
 		}

@@ -3,6 +3,8 @@ package mongodb
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/nika-framework/nika"
@@ -19,15 +21,15 @@ type MongoDB struct {
 
 // Config holds the parameters for connecting to a MongoDB deployment.
 type Config struct {
-	URI              string         `json:"uri"`
-	Database         string         `json:"database"`
-	MaxPoolSize      *uint64        `json:"maxPoolSize"`
-	MinPoolSize      *uint64        `json:"minPoolSize"`
-	SocketTimeout    *time.Duration `json:"socketTimeout"`
-	ConnectTimeout   *time.Duration `json:"connectTimeout"`
-	ServerSelection  *time.Duration `json:"serverSelectionTimeout"`
-	MaxConnIdleTime  *time.Duration `json:"maxConnIdleTime"`
-	RetryWrites      *bool          `json:"retryWrites"`
+	URI             string         `json:"uri"`
+	Database        string         `json:"database"`
+	MaxPoolSize     *uint64        `json:"maxPoolSize"`
+	MinPoolSize     *uint64        `json:"minPoolSize"`
+	SocketTimeout   *time.Duration `json:"socketTimeout"`
+	ConnectTimeout  *time.Duration `json:"connectTimeout"`
+	ServerSelection *time.Duration `json:"serverSelectionTimeout"`
+	MaxConnIdleTime *time.Duration `json:"maxConnIdleTime"`
+	RetryWrites     *bool          `json:"retryWrites"`
 }
 
 // Setup connects to MongoDB, pings the primary, and registers the resulting
@@ -73,6 +75,14 @@ func Setup(app *nika.App, cfg Config) (*MongoDB, error) {
 		clientOptions.SetRetryWrites(*cfg.RetryWrites)
 	}
 
+	warnInsecureURI(cfg.URI)
+
+	// Passing a ctx that this function's `defer cancel()` will cancel is safe on
+	// the v1 driver: mongo.Connect calls NewClient followed by Client.Connect,
+	// and Client.Connect only uses ctx for the optional field-level-encryption
+	// sub-clients — the topology is started through connector.Connect(), which
+	// takes no context and keeps none. Cancelling afterwards therefore does not
+	// tear down the pool. (Verified against mongo-driver v1.17.x mongo/client.go.)
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("mongodb connect error: %w", err)
@@ -88,11 +98,74 @@ func Setup(app *nika.App, cfg Config) (*MongoDB, error) {
 		database: cfg.Database,
 	}
 
-	app.RegisterSingleton(db)
-	app.RegisterSingleton(client.Database(cfg.Database))
+	if app != nil {
+		app.RegisterSingleton(db)
+		app.RegisterSingleton(client.Database(cfg.Database))
+
+		// Disconnect drains checked-out connections and ends open sessions;
+		// without this the client was simply abandoned at process exit.
+		app.OnShutdown(func(shutdownCtx context.Context) error {
+			return client.Disconnect(shutdownCtx)
+		})
+	}
 
 	fmt.Println("✅ MongoDB connected")
 	return db, nil
+}
+
+// warnInsecureURI logs when the connection string carries no credentials and is
+// not pointed at a local instance.
+//
+// An unauthenticated MongoDB reachable over the network is the single most
+// common cause of public data leaks in this ecosystem, and the driver connects to
+// one without complaint. TLS is not enforced here — a private-network deployment
+// can be a legitimate choice — but a remote target with no auth is worth saying
+// out loud at startup.
+func warnInsecureURI(uri string) {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return
+	}
+
+	hasCredentials := parsed.User != nil && parsed.User.Username() != ""
+	if !hasCredentials && strings.Contains(uri, "authMechanism") {
+		// X.509 / AWS IAM auth carry no username in the URI.
+		hasCredentials = true
+	}
+	if hasCredentials {
+		if !strings.EqualFold(parsed.Scheme, "mongodb+srv") &&
+			!strings.Contains(uri, "tls=true") && !strings.Contains(uri, "ssl=true") &&
+			!isLocalHost(parsed.Host) {
+			fmt.Println("⚠️  MongoDB: connecting to a remote host without TLS — credentials cross the network in the clear")
+		}
+		return
+	}
+
+	if isLocalHost(parsed.Host) {
+		return
+	}
+	fmt.Printf("⚠️  MongoDB: URI for %q has no credentials — the deployment appears to accept unauthenticated access\n", parsed.Host)
+}
+
+func isLocalHost(host string) bool {
+	if host == "" {
+		return false
+	}
+	// Strip the port; a URI may list several hosts, so check them all.
+	for _, h := range strings.Split(host, ",") {
+		name := h
+		if idx := strings.LastIndexByte(name, ':'); idx >= 0 && !strings.Contains(name, "]") {
+			name = name[:idx]
+		}
+		name = strings.Trim(name, "[]")
+		switch strings.ToLower(name) {
+		case "localhost", "127.0.0.1", "::1":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // Database returns the named Mongo database, or the configured default when

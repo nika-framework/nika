@@ -2,7 +2,9 @@ package migration
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"path"
@@ -78,10 +80,23 @@ func LoadFS(root fs.FS, dir string) ([]*Migration, error) {
 	return out, nil
 }
 
+// fileChecksum fingerprints the migration text so the runner can detect that an
+// already-applied file was edited afterwards. Both directions are hashed: an
+// edited .down.sql is just as much a divergence from what the database was built
+// with.
+func fileChecksum(up, down string) string {
+	h := sha256.New()
+	_, _ = h.Write([]byte(up))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(down))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
 func buildFileMigration(version int64, name, up, down string) *Migration {
 	mig := &Migration{
-		Version: version,
-		Name:    name,
+		Version:  version,
+		Name:     name,
+		Checksum: fileChecksum(up, down),
 		Up: func(ctx context.Context, tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, up)
 			return err

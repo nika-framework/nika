@@ -6,6 +6,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -30,6 +31,13 @@ type Migration struct {
 	Name    string
 	Up      UpFn
 	Down    DownFn
+
+	// Checksum optionally fingerprints the migration body. When both it and the
+	// recorded value are set and they differ, the runner refuses to continue: the
+	// database no longer matches the code that supposedly produced it, and every
+	// later migration is written against the wrong assumption. Mongo migrations
+	// are Go functions with no source text to hash, so this is opt-in.
+	Checksum string
 }
 
 // Applied is one entry from the tracking collection.
@@ -37,7 +45,17 @@ type Applied struct {
 	Version   int64     `bson:"version"`
 	Name      string    `bson:"name"`
 	AppliedAt time.Time `bson:"applied_at"`
+	Checksum  string    `bson:"checksum,omitempty"`
+
+	// Completed distinguishes a claim from a finished migration. A document
+	// inserted but not yet completed means some process is running (or died
+	// running) that version.
+	Completed bool `bson:"completed"`
 }
+
+// ErrChecksumMismatch reports that an applied migration's body changed since it
+// ran.
+var ErrChecksumMismatch = errors.New("migration: checksum mismatch")
 
 var (
 	registryMu sync.Mutex
@@ -88,6 +106,25 @@ type Migrator struct {
 	db         *mongodb.MongoDB
 	collection string
 	migs       []*Migration
+
+	ensureOnce sync.Once
+	ensureErr  error
+}
+
+// validateCollection rejects names MongoDB reserves or cannot store. `$` is
+// disallowed in collection names, a NUL byte truncates the name, and the
+// `system.` prefix names internal collections.
+func validateCollection(name string) error {
+	switch {
+	case name == "":
+		return errors.New("collection name is empty")
+	case strings.ContainsAny(name, "$\x00"):
+		return errors.New("collection name must not contain '$' or NUL")
+	case strings.HasPrefix(name, "system."):
+		return errors.New("collection name must not use the reserved 'system.' prefix")
+	default:
+		return nil
+	}
 }
 
 // New returns a Migrator that uses the process-wide registry.
@@ -108,24 +145,34 @@ func NewWith(db *mongodb.MongoDB, migs []*Migration) *Migrator {
 }
 
 // WithCollection overrides the tracking collection name.
+// It panics on a name MongoDB cannot use.
 func (m *Migrator) WithCollection(name string) *Migrator {
 	if name != "" {
+		if err := validateCollection(name); err != nil {
+			panic(fmt.Sprintf("nika/migration: invalid tracking collection %q: %v", name, err))
+		}
 		m.collection = name
+		m.ensureOnce = sync.Once{}
 	}
 	return m
 }
 
-// Ensure creates a unique index on the tracking collection's version field.
+// Ensure creates the unique index on the tracking collection's version field.
+// That index is what makes concurrent migration runs safe: see UpN.
 func (m *Migrator) Ensure(ctx context.Context) error {
-	coll := m.db.DefaultDatabase().Collection(m.collection)
-	_, err := coll.Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "version", Value: 1}},
-		Options: options.Index().SetUnique(true).SetName("version_unique"),
+	// Ensure is reached from Applied, which every other method calls; creating
+	// the index once per Migrator keeps a round trip off each of them.
+	m.ensureOnce.Do(func() {
+		coll := m.db.DefaultDatabase().Collection(m.collection)
+		_, err := coll.Indexes().CreateOne(ctx, mongo.IndexModel{
+			Keys:    bson.D{{Key: "version", Value: 1}},
+			Options: options.Index().SetUnique(true).SetName("version_unique"),
+		})
+		if err != nil {
+			m.ensureErr = fmt.Errorf("migration ensure index: %w", err)
+		}
 	})
-	if err != nil {
-		return fmt.Errorf("migration ensure index: %w", err)
-	}
-	return nil
+	return m.ensureErr
 }
 
 // Applied lists all applied migrations, ordered by version ASC.
@@ -174,6 +221,10 @@ func (m *Migrator) Up(ctx context.Context) ([]int64, error) {
 
 // UpN applies up to n pending migrations (n <= 0 means all).
 func (m *Migrator) UpN(ctx context.Context, n int) ([]int64, error) {
+	if err := m.Verify(ctx); err != nil {
+		return nil, err
+	}
+
 	pending, err := m.Pending(ctx)
 	if err != nil {
 		return nil, err
@@ -184,20 +235,78 @@ func (m *Migrator) UpN(ctx context.Context, n int) ([]int64, error) {
 	applied := make([]int64, 0, len(pending))
 	db := m.db.DefaultDatabase()
 	coll := db.Collection(m.collection)
+
 	for _, mig := range pending {
-		if err := mig.Up(ctx, db); err != nil {
-			return applied, fmt.Errorf("apply migration %d %q: %w", mig.Version, mig.Name, err)
-		}
-		if _, err := coll.InsertOne(ctx, Applied{
+		// Claim the version before running it. MongoDB has no advisory lock, so
+		// the unique index on version is the mutual exclusion: two pods rolling
+		// out together both compute the same pending set, and the loser's insert
+		// fails with a duplicate key instead of applying the migration a second
+		// time. Recording *after* the body, as this used to, gave both a clear run
+		// — and a migration that creates an index or backfills documents is not
+		// idempotent.
+		claim := Applied{
 			Version:   mig.Version,
 			Name:      mig.Name,
 			AppliedAt: time.Now().UTC(),
-		}); err != nil {
+			Checksum:  mig.Checksum,
+			Completed: false,
+		}
+		if _, err := coll.InsertOne(ctx, claim); err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return applied, fmt.Errorf(
+					"migration %d %q is already claimed by another process (or a previous run left it incomplete)",
+					mig.Version, mig.Name)
+			}
+			return applied, fmt.Errorf("claim %d %q: %w", mig.Version, mig.Name, err)
+		}
+
+		if err := mig.Up(ctx, db); err != nil {
+			// Release the claim so the migration can be retried. Mongo has no
+			// transaction spanning the DDL-like operations a migration performs,
+			// so partial effects may remain — the failure is reported either way.
+			if _, delErr := coll.DeleteOne(ctx, bson.M{"version": mig.Version}); delErr != nil {
+				return applied, fmt.Errorf(
+					"apply migration %d %q: %w (and releasing the claim failed: %v)",
+					mig.Version, mig.Name, err, delErr)
+			}
+			return applied, fmt.Errorf("apply migration %d %q: %w", mig.Version, mig.Name, err)
+		}
+
+		if _, err := coll.UpdateOne(ctx,
+			bson.M{"version": mig.Version},
+			bson.M{"$set": bson.M{"completed": true, "applied_at": time.Now().UTC()}},
+		); err != nil {
 			return applied, fmt.Errorf("record %d %q: %w", mig.Version, mig.Name, err)
 		}
 		applied = append(applied, mig.Version)
 	}
 	return applied, nil
+}
+
+// Verify reports whether every already-applied migration still matches the
+// checksum recorded when it ran. Versions with no checksum on either side are
+// skipped.
+func (m *Migrator) Verify(ctx context.Context) error {
+	applied, err := m.Applied(ctx)
+	if err != nil {
+		return err
+	}
+	recorded := make(map[int64]Applied, len(applied))
+	for _, a := range applied {
+		recorded[a.Version] = a
+	}
+
+	for _, mg := range m.migs {
+		a, ok := recorded[mg.Version]
+		if !ok || mg.Checksum == "" || a.Checksum == "" {
+			continue
+		}
+		if a.Checksum != mg.Checksum {
+			return fmt.Errorf("%w: migration %d %q was applied as %s but is now %s",
+				ErrChecksumMismatch, mg.Version, mg.Name, a.Checksum, mg.Checksum)
+		}
+	}
+	return nil
 }
 
 // Down rolls back the most recent applied migration.
