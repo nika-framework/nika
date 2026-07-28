@@ -186,3 +186,58 @@ func (a *App) Shutdown(ctx context.Context) error {
 	}
 	return hookErr
 }
+
+// RunWorker starts the app's background work and blocks until SIGINT or SIGTERM,
+// then drains it.
+//
+// It is the counterpart to Listen for a process that serves no HTTP: a message
+// consumer, a scheduler, a queue worker. Without it such a process has to
+// hand-roll signal handling, and the common mistake is to forget entirely — main
+// returns as soon as the wiring is done, the process exits, and the consumers that
+// were just registered never handle anything.
+//
+//	func main() {
+//	    app := nika.NewApp()
+//	    microservice.Setup(app, microservice.Config{Transport: transport})
+//	    app.LoadModule(src.NewAppModule())
+//	    app.RunWorker()
+//	}
+//
+// Start hooks run first, so consumers only begin after every handler is
+// registered. On a signal, the shutdown hooks run with a context bounded by
+// Config.ShutdownTimeout, which is what closes broker connections and lets
+// in-flight handlers finish.
+func (a *App) RunWorker() error {
+	return a.RunWorkerContext(context.Background())
+}
+
+// RunWorkerContext is RunWorker with a caller-supplied context. It stops when the
+// context is cancelled or a termination signal arrives, whichever comes first.
+func (a *App) RunWorkerContext(ctx context.Context) error {
+	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := a.Start(runCtx); err != nil {
+		return fmt.Errorf("nika: start hook failed: %w", err)
+	}
+
+	fmt.Println("\n***🚀 Nika worker is running — press Ctrl+C to stop *****")
+
+	<-runCtx.Done()
+
+	// Release the signal handler before draining, so a second Ctrl+C kills the
+	// process instead of being swallowed by a shutdown that is taking too long.
+	stop()
+
+	fmt.Printf("\n⏳ draining (max %s)...\n", a.cfg.ShutdownTimeout)
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), a.cfg.ShutdownTimeout)
+	defer cancel()
+
+	if err := a.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("nika: worker shutdown: %w", err)
+	}
+
+	fmt.Println("✅ Nika worker stopped cleanly")
+	return nil
+}

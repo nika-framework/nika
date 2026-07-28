@@ -8,6 +8,10 @@
 package swagger
 
 import (
+	"fmt"
+	"net/http"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/nika-framework/nika"
 	swaggerFiles "github.com/swaggo/files"
@@ -15,6 +19,10 @@ import (
 )
 
 type Config struct {
+	// Path is where the docs are served. Both the plain form ("/docs") and gin's
+	// wildcard form ("/docs/*any") are accepted and mean the same thing; the base
+	// path itself redirects to the UI, so "/docs" works and nobody has to
+	// remember "/docs/index.html". Defaults to "/swagger".
 	Path                 string
 	PersistAuthorization bool
 
@@ -45,26 +53,65 @@ func Setup(app *nika.App, cfg *Config) bool {
 		cfg = &Config{}
 	}
 
+	base := basePath(cfg.Path)
+
 	if !enabled(cfg) {
+		// Skipping quietly turns into a 404 the caller has no way to explain —
+		// and because nika defaults to release mode, that is what happens to
+		// anyone who calls Setup without touching Enabled or GIN_MODE.
+		fmt.Printf("⚠️  Swagger: docs not mounted at %s/ — gin is in %q mode. "+
+			"Pass swagger.Config{Enabled: swagger.Enable(true)}, or run with GIN_MODE=debug / nika.Config{Mode: \"debug\"}.\n",
+			base, gin.Mode())
 		return false
 	}
 
-	path := cfg.Path
-	if path == "" {
-		path = "/swagger/*any"
-	}
-
-	handler := ginSwagger.WrapHandler(
+	docs := ginSwagger.WrapHandler(
 		swaggerFiles.Handler,
 		ginSwagger.PersistAuthorization(cfg.PersistAuthorization),
 	)
 
-	handlers := make([]gin.HandlerFunc, 0, len(cfg.Guards)+1)
-	handlers = append(handlers, cfg.Guards...)
-	handlers = append(handlers, handler)
+	// gin-swagger only answers requests that name a UI asset, so "/docs" and
+	// "/docs/" get its bare "404 page not found" instead of the UI. Send both to
+	// index.html rather than making every user type the filename.
+	index := base + "/index.html"
+	handler := func(c *gin.Context) {
+		if any := c.Param("any"); any == "" || any == "/" {
+			c.Redirect(http.StatusFound, index)
+			return
+		}
+		docs(c)
+	}
 
-	app.GET(path, handlers...)
+	app.GET(base+"/*any", withGuards(cfg.Guards, handler)...)
+	if base != "" {
+		app.GET(base, withGuards(cfg.Guards, func(c *gin.Context) {
+			c.Redirect(http.StatusFound, index)
+		})...)
+	}
 	return true
+}
+
+// basePath normalises Config.Path into a prefix with no trailing slash and no
+// wildcard segment, so that "/docs", "/docs/", "/docs/*any" and "/docs/*path"
+// all describe the same mount point.
+func basePath(path string) string {
+	if path == "" {
+		path = "/swagger"
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if i := strings.Index(path, "/*"); i >= 0 {
+		path = path[:i]
+	}
+	return strings.TrimSuffix(path, "/")
+}
+
+// withGuards puts the guards in front of handler, as one chain.
+func withGuards(guards []gin.HandlerFunc, handler gin.HandlerFunc) []gin.HandlerFunc {
+	chain := make([]gin.HandlerFunc, 0, len(guards)+1)
+	chain = append(chain, guards...)
+	return append(chain, handler)
 }
 
 // enabled resolves the tri-state Enabled flag against the current gin mode.

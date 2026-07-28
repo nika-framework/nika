@@ -43,6 +43,16 @@ func (t *Transport) Listen(ctx context.Context, patterns []string, dispatch micr
 		slots:      newSlots(t.opts.Concurrency),
 	})
 
+	// Additional services share this server, its port, its credentials and its
+	// interceptors. See Options.RegisterServices for why this exists.
+	//
+	// It runs after the Messenger registration on purpose: grpc-go panics on a
+	// duplicate service name, so a collision fails at startup rather than leaving
+	// a half-served port.
+	if t.opts.RegisterServices != nil {
+		t.opts.RegisterServices(srv)
+	}
+
 	t.srvMu.Lock()
 	if t.isClosed() {
 		// Close ran between the guard above and here; do not leave a server and a

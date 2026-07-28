@@ -265,6 +265,11 @@ var defaultLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions
 	Level: slog.LevelInfo,
 }))
 
+// Logger returns the logger the framework's middleware writes to, so adjacent
+// packages log to the same sink the application configured instead of to their
+// own.
+func Logger() *slog.Logger { return logger() }
+
 // SetLogger replaces the logger used by the framework's middleware. Passing nil
 // restores the default stderr logger.
 func SetLogger(l *slog.Logger) {

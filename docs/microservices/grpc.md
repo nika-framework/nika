@@ -1,18 +1,299 @@
-# gRPC Transporter
+# gRPC
 
-The gRPC transport gives you the lowest-latency request/reply of any transport here —
-no correlation map, no broker hop, HTTP/2 multiplexing, deadlines propagated by the
-protocol itself, and mTLS — with **no `.proto` file and no code generation step**. The
-service is a hand-written `grpc.ServiceDesc` and the JSON envelope travels through a
-registered pass-through codec. The thing to internalise first: gRPC is not a broker,
-so there is nothing to hold a message while the far side is down.
+Nika ships **two gRPC packages**, and they make opposite trades. Both are
+protoc-free, but only one of them is a protobuf contract:
 
-See [Microservices Overview](basics.md) for patterns, handlers and the envelope.
+| Package | What it is | Use it for |
+|---|---|---|
+| [`common/grpcapi`](#grpc-api) | A **real protobuf API**, with descriptors derived from your structs at startup and served over reflection | a public or polyglot contract that generated clients call |
+| [`transport/grpcmq`](#grpc-transport) | A **JSON-envelope transport** that reuses the microservice handler stack over gRPC | Go-to-Go service-to-service calls inside the framework |
 
-## Delivery guarantees
+Many services run both, on the same port, for two different callers. Jump to the
+half you need:
 
-There are none, and the difference from every other transport in this section is not a
-detail:
+- **[gRPC API](#grpc-api)** — `common/grpcapi`, schema and reflection, no `.proto`.
+- **[gRPC transport](#grpc-transport)** — `transport/grpcmq`, envelope over gRPC.
+
+See [Microservices Overview](basics.md) for the shared envelope, patterns and
+handler model that the transport half builds on.
+
+---
+
+## gRPC API
+
+`common/grpcapi` serves a real gRPC API defined in Go — **no `.proto` file and no
+code-generation step**.
+
+The protobuf descriptors are derived from your request and response structs when
+the app starts, registered in a descriptor registry, and served over gRPC server
+reflection. A Python, NestJS, Java or Bruno client discovers the schema exactly as
+it would for a protoc-generated service, and speaks ordinary protobuf on the wire.
+There is no custom codec and no envelope.
+
+!!! note "This is not the gRPC *transport*"
+    [`transport/grpcmq`](#grpc-transport) carries the framework's JSON envelope and
+    routes on a `pattern`, which is what lets one handler also run over Redis and
+    TCP — and is exactly why a generated gRPC client cannot call it. This package
+    makes the opposite trade: a genuine protobuf contract for one protocol.
+
+### Define a service
+
+```go
+package rpc
+
+import (
+    "context"
+    "time"
+
+    "github.com/nika-framework/nika/common/grpcapi"
+)
+
+type GetUserRequest struct {
+    ID int64 `json:"id" protobuf:"1"`
+}
+
+type User struct {
+    ID        int64     `json:"id" protobuf:"1"`
+    Username  string    `json:"username" protobuf:"2"`
+    CreatedAt time.Time `json:"created_at" protobuf:"3"`
+
+    // Excluded from the contract entirely.
+    PasswordHash string `json:"-"`
+}
+
+type UserController struct {
+    service *services.UserService
+
+    GetUser grpcapi.Unary[GetUserRequest, User] `grpc:"GetUser"`
+}
+
+func (c *UserController) GRPCService() string { return "UserService" }
+
+func NewUserController(service *services.UserService) *UserController {
+    c := &UserController{service: service}
+    c.GetUser = func(ctx context.Context, in *GetUserRequest) (*User, error) {
+        user, err := c.service.FindOne(ctx, in.ID)
+        if err != nil {
+            return nil, grpcapi.Internal("could not read the user")
+        }
+        if user == nil {
+            return nil, grpcapi.NotFound("no user with id %d", in.ID)
+        }
+        return toWire(user), nil
+    }
+    return c
+}
+```
+
+Register it like any other controller — the module system already carries it:
+
+```go
+func (m *UserModule) Controllers() []interface{} {
+    return []interface{}{rpc.NewUserController}
+}
+```
+
+### Wire it up
+
+```go
+grpcapi.Setup(app, grpcapi.Config{
+    Addr:     ":50052",
+    Package:  "user.v1",
+    Insecure: true,   // must be explicit; there is no implicit plaintext
+})
+```
+
+`Package` is the protobuf namespace clients see, so it is a published name —
+include a version, and treat changing it as breaking every generated client.
+
+Handlers take and return typed values rather than a `*gin.Context`, because a gRPC
+call has no URL, no query string and no HTTP status; mapping it onto an HTTP
+context would misrepresent all three.
+
+### Call it from anywhere
+
+```bash
+grpcurl -plaintext 127.0.0.1:50052 list
+# grpc.reflection.v1.ServerReflection
+# user.v1.UserService
+
+grpcurl -plaintext 127.0.0.1:50052 describe user.v1.User
+# message User {
+#   int64 id = 1;
+#   string username = 2;
+#   .google.protobuf.Timestamp created_at = 3;
+# }
+
+grpcurl -plaintext -d '{"id":1}' 127.0.0.1:50052 user.v1.UserService/GetUser
+```
+
+That schema was reconstructed by the client from reflection. No `.proto` file
+exists anywhere in the project.
+
+**Bruno**: set the URL to `127.0.0.1:50052`, TLS off, and click load methods.
+
+**Python**, with no generated stubs:
+
+```python
+import grpc
+from grpc_reflection.v1alpha.proto_reflection_descriptor_database import (
+    ProtoReflectionDescriptorDatabase)
+from google.protobuf.descriptor_pool import DescriptorPool
+from google.protobuf.message_factory import GetMessageClass
+
+channel = grpc.insecure_channel("127.0.0.1:50052")
+pool = DescriptorPool(ProtoReflectionDescriptorDatabase(channel))
+
+request_type = GetMessageClass(pool.FindMessageTypeByName("user.v1.GetUserRequest"))
+reply_type = GetMessageClass(pool.FindMessageTypeByName("user.v1.User"))
+
+call = channel.unary_unary(
+    "/user.v1.UserService/GetUser",
+    request_serializer=request_type.SerializeToString,
+    response_deserializer=reply_type.FromString,
+)
+print(call(request_type(id=1)).username)
+```
+
+**NestJS**, which wants a file, can be given one — dump the derived descriptors:
+
+```go
+files := server.Files()   // *protoregistry.Files
+```
+
+### Type mapping
+
+| Go | protobuf |
+|---|---|
+| `string` | `string` |
+| `bool` | `bool` |
+| `int`, `int64` | `int64` |
+| `int8/16/32` | `int32` |
+| `uint`, `uint64` | `uint64` |
+| `uint8/16/32` | `uint32` |
+| `float32` / `float64` | `float` / `double` |
+| `[]byte` | `bytes` |
+| `time.Time` | `google.protobuf.Timestamp` |
+| nested `struct` | nested message |
+| `[]T` | `repeated T` |
+| `*T` | `optional T` (presence tracked) |
+| `map[...]` | **unsupported** — fails at startup |
+| `interface{}` | **unsupported** — fails at startup |
+
+A field name comes from its `json` tag, falling back to snake_case of the Go name.
+`json:"-"` or `grpc:"-"` leaves the field out of the contract entirely — which is
+how a password hash stays off the wire structurally, rather than by remembering to
+strip it.
+
+!!! warning "Pin field numbers on anything published"
+    Numbers come from declaration order unless a `protobuf:"N"` tag sets them.
+    Reordering two struct fields then silently changes the wire format for every
+    client already generated against it — old clients read the new bytes into the
+    wrong fields, with no error anywhere. Add `protobuf:"N"` before anyone else
+    depends on the schema.
+
+### Presence
+
+A Go pointer becomes proto3 `optional`, so an absent field and a field set to the
+zero value stay distinguishable:
+
+```go
+type UpdateUserRequest struct {
+    ID       int64   `json:"id" protobuf:"1"`
+    Username *string `json:"username" protobuf:"2"`  // nil means "leave alone"
+}
+```
+
+Without it, "clear the username" and "do not touch the username" are the same
+request — which is why a PATCH-shaped API needs pointers.
+
+### Errors
+
+A gRPC client branches on the status code, so returning the right one is not
+cosmetic:
+
+```go
+return nil, grpcapi.NotFound("no user with id %d", id)
+return nil, grpcapi.InvalidArgument("email must be a valid address")
+return nil, grpcapi.AlreadyExists("that email is taken")
+return nil, grpcapi.PermissionDenied("not your account")
+return nil, grpcapi.Unavailable("the upstream is down")
+return nil, grpcapi.Internal("could not read the user")
+```
+
+Any `status.Error` is passed through untouched. **Any other error becomes
+`Internal` with a generic message** — a raw database error can carry a DSN, a
+table layout or an internal hostname, so it never reaches the caller. Log the
+cause yourself, or add a logging interceptor.
+
+### Validation
+
+Wire the framework validator in and the same `validate:"..."` tags that produce a
+422 over REST produce `InvalidArgument` here:
+
+```go
+grpcapi.Setup(app, grpcapi.Config{
+    ...
+    Validate: func(request any) error {
+        if errs := validator.ValidateStruct(request); len(errs) > 0 {
+            return grpcapi.InvalidArgument("%s: %s", errs[0].Field, errs[0].Message)
+        }
+        return nil
+    },
+})
+```
+
+It runs on the decoded request before the handler, so a rejected call never
+reaches your code.
+
+### Configuration
+
+| Field | Default | Notes |
+|---|---|---|
+| `Addr` | `:50051` | listen address; `:0` picks a free port, read it from `Addr()` |
+| `Package` | — | **required**; the protobuf namespace |
+| `Insecure` | `false` | must be explicit to serve plaintext |
+| `Creds` | — | transport credentials for TLS |
+| `DisableReflection` | `false` | reflection is on by default; turn it off on a public port |
+| `MaxRecvMsgSize` | 8 MiB | grpc-go's own 4 MiB default silently rejects larger payloads |
+| `KeepaliveMinTime` | 30s | without an enforcement policy a client can ping in a tight loop |
+| `GracefulStopTimeout` | 15s | `GracefulStop` alone can hang on a stuck stream |
+| `UnaryInterceptors` | — | ordinary gRPC interceptors |
+| `RegisterServices` | — | register a hand-written or generated service on the same port |
+| `Validate` | — | runs before every handler |
+
+### What this does not do yet
+
+- **Streaming.** Unary only. Server, client and bidirectional streams are not
+  derived.
+- **Maps and `interface{}`.** Both fail at startup with a named field rather than
+  producing a lossy schema.
+- **Enums.** A Go constant type maps to its underlying integer, not a protobuf
+  enum.
+- **Breaking-change detection.** There is no `.proto` in version control to diff,
+  which is the real cost of this approach: nothing stops you renaming a field.
+  Pin field numbers, and if the contract is consumed outside your team, consider
+  dumping the descriptors into CI and diffing them.
+
+When you need any of those, write a `.proto`, generate it, and register it through
+`Config.RegisterServices` — the two coexist on one port.
+
+---
+
+## gRPC transport
+
+`transport/grpcmq` is the framework's [microservice](basics.md) transport over
+gRPC. It gives you the lowest-latency request/reply of any transport here — no
+correlation map, no broker hop, HTTP/2 multiplexing, deadlines propagated by the
+protocol itself, and mTLS — with **no `.proto` file and no code generation step**.
+The service is a hand-written `grpc.ServiceDesc` and the JSON envelope travels
+through a registered pass-through codec. The thing to internalise first: gRPC is
+not a broker, so there is nothing to hold a message while the far side is down.
+
+### Delivery guarantees
+
+There are none, and the difference from every other transport in this section is
+not a detail:
 
 - **There is no store and forward.** If the server is down when you `Publish`, the
   message is lost. There is no queue to hold it and nothing to retry into.
@@ -29,7 +310,7 @@ consumer exists yet.
 `Request` is a plain unary call: the RPC itself is the correlation, which is why this is
 the cheapest request/reply of the set.
 
-## Minimal working setup
+### Minimal working setup
 
 A server:
 
@@ -100,9 +381,9 @@ use, so a peer that is briefly down does not stop this process from starting.
 Configuration errors are reported by `New`, because a wiring mistake should stop the
 process at startup rather than surface as a failed call under load.
 
-## Options
+### Options
 
-### Server
+#### Server
 
 | Field | Default | Purpose |
 |---|---|---|
@@ -117,7 +398,7 @@ process at startup rather than surface as a failed call under load.
 | `ServerOptions` | `nil` | Appended last, so they can override anything above. |
 | `GracefulStopTimeout` | `15s` (`DefaultGracefulStopTimeout`) | Bounds a graceful shutdown before it is forced. |
 
-### Client
+#### Client
 
 | Field | Default | Purpose |
 |---|---|---|
@@ -128,7 +409,7 @@ process at startup rather than surface as a failed call under load.
 | `ReplyTimeout` | `microservice.DefaultRequestTimeout` (10s) | Request deadline when the caller passes none. |
 | `DialOptions` | `nil` | Appended last. Use them for retry policies via `grpc.WithDefaultServiceConfig`. |
 
-### Both halves
+#### Both halves
 
 | Field | Default | Purpose |
 |---|---|---|
@@ -139,7 +420,7 @@ process at startup rather than surface as a failed call under load.
 
 `New` requires at least one of `Addr` and `Target`.
 
-## Plaintext cannot ship by accident
+### Plaintext cannot ship by accident
 
 !!! warning "`New` fails unless transport security is configured or `Insecure` is explicitly true"
     There is no implicit plaintext default. Set `Creds`, or `TLSConfig`, or set
@@ -160,7 +441,7 @@ grpcmq.MustNew(grpcmq.Options{
 })
 ```
 
-## The protoc-free codec, and what it costs
+### The protoc-free codec, and what it costs
 
 gRPC does not care what the message bytes mean. It needs a codec that can turn a Go
 value into bytes and back, and it selects one **by content-subtype**. This transport
@@ -195,12 +476,13 @@ The trade-off against real protobuf is deliberate:
   travel over Redis, NATS, Kafka and AMQP — and a payload you can read in a packet
   capture.
 
-This transport carries an internal, already-JSON envelope between Go services that
-share the `microservice` package, so the schema and codegen benefits have nobody to
-serve. **A public, polyglot API is the case where protobuf wins and this approach should
-not be used** — write a real `.proto` service alongside it.
+This transport carries an internal, already-JSON envelope between Go services
+that share the `microservice` package, so the schema and codegen benefits have
+nobody to serve. **A public, polyglot API is the case where protobuf wins and
+this approach should not be used** — use the [gRPC API](#grpc-api) half above,
+or write a real `.proto` service alongside it.
 
-## `MaxRecvMsgSize` defaults to 8 MiB, not gRPC's 4
+### `MaxRecvMsgSize` defaults to 8 MiB, not gRPC's 4
 
 gRPC's own default is 4 MiB, which rejects a larger envelope with `ResourceExhausted` —
 a failure that shows up the first time a real payload is big and looks like a bug in the
@@ -208,7 +490,7 @@ handler. The default here is 8 MiB, matching the framework's envelope cap, and i
 applied symmetrically on the send side too: a server that accepts an 8 MiB question but
 cannot send an 8 MiB answer fails in a way that looks like the handler's fault.
 
-## Keepalive is enforced
+### Keepalive is enforced
 
 Without an enforcement policy a client may ping in a tight loop, which is a cheap way to
 burn a server's CPU from outside. The server accepts pings no more often than
@@ -217,7 +499,7 @@ active stream. A client whose `ClientKeepalive.Time` is below the server's minim
 its connection dropped with `ENHANCE_YOUR_CALM`, which is why no client keepalive
 interval is set unless you ask for one — a default there would be a trap.
 
-## Shutdown is bounded
+### Shutdown is bounded
 
 Cancelling the context passed to `Listen` drains gracefully; `Close` is the abrupt path.
 
@@ -228,7 +510,7 @@ a stuck pod. So the graceful stop is given `GracefulStopTimeout` (15s), and then
 server is forced down with a logged warning. A shutdown that always terminates is worth
 more than one that is always graceful.
 
-## Concurrency
+### Concurrency
 
 `MaxConcurrentStreams` is per connection, so N clients can still produce
 N × `MaxConcurrentStreams` handlers at once. `Concurrency` (256) is the process-wide
@@ -241,7 +523,47 @@ stream it is answered with a `400` / `MALFORMED_ENVELOPE` error envelope instead
 failing the stream, because a stream carries many messages and killing it over one bad
 frame would take down every other in-flight message on it.
 
-## Testing
+### Serving a real protobuf contract alongside
+
+The `nika-raw` codec is what removes protoc from the build, and the price is
+that the Messenger service is not a protobuf contract. A Node, Java or Python
+client generated from a `.proto` file cannot call it: it would address
+`/UserService/GetUserProfile`, while this server exposes
+`/nika.microservice.v1.Messenger/Dispatch` and speaks `application/grpc+nika-raw`.
+Routing here lives in the envelope's `pattern` field, not in the method name —
+which is exactly what lets one handler also serve Redis and NATS.
+
+When you need a genuine contract for other languages, you have two choices:
+
+1. Use the [gRPC API](#grpc-api) half of this page, which derives a real
+   protobuf contract from your structs.
+2. Generate the service as usual from a `.proto` file and register it on the
+   same server:
+
+```go
+transport, err := grpcmq.New(grpcmq.Options{
+    Addr:     ":50051",
+    Insecure: true,
+    RegisterServices: func(srv *grpc.Server) {
+        userpb.RegisterUserServiceServer(srv, &userServer{})
+    },
+})
+```
+
+Both services then share one port, one set of credentials and one interceptor
+chain. They coexist because the codec is resolved per call from the
+content-subtype rather than forced server-wide: a protobuf client is served by the
+protobuf codec, a Nika client by `nika-raw`, over the same connection.
+
+`RegisterServices` runs after the Messenger is registered, and grpc-go panics on a
+duplicate service name — so a collision fails at startup instead of silently
+shadowing something.
+
+Use it when you have a polyglot or public API. For Go-to-Go calls between services
+that already share the `microservice` package, the envelope needs no schema and
+this adds only codegen.
+
+### Testing
 
 Handlers need no server. `nikatest.NewMicroservice(t)` runs the whole message stack over
 the in-memory transport:
@@ -270,17 +592,18 @@ OS-assigned port without polling. Note that with port 0 the OS assigns a fresh p
 every `Listen`, so the value changes across a supervisor restart — use a fixed port in
 production.
 
-## When to use it, and when not to
+### When to use it, and when not to
 
 Use gRPC for synchronous service-to-service calls where a caller is blocked on the
 answer: the lowest latency of the set, mTLS, deadlines carried by the protocol,
 HTTP/2 multiplexing over one connection, and interceptors that work with the existing
 ecosystem. If you already run a service mesh, this is the transport it understands.
 
-Do not use it for events. There is no queue, no fan-out and no retry, so a publish
-against a server that is redeploying is simply lost — use [Kafka](kafka.md),
-[NATS](nats.md) or [RabbitMQ](rabbitmq.md), where the broker holds the message. Do not
-use it for a public or polyglot API either: write a real protobuf service instead, since
+Do not use it for events. There is no queue, no fan-out and no retry, so a
+publish against a server that is redeploying is simply lost — use
+[Kafka](kafka.md), [NATS](nats.md) or [RabbitMQ](rabbitmq.md), where the broker
+holds the message. Do not use it for a public or polyglot API either: use the
+[gRPC API](#grpc-api) half above, or write a real protobuf service instead, since
 the pass-through codec deliberately has no schema. And if you want a synchronous
-transport with no broker *and* no gRPC dependency — a sidecar, an embedded pair, a
-test — [TCP](tcp.md) is the smaller answer.
+transport with no broker *and* no gRPC dependency — a sidecar, an embedded pair,
+a test — [TCP](tcp.md) is the smaller answer.

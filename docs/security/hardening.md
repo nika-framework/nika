@@ -188,10 +188,14 @@ who looks. Put it behind auth if you need it in production:
 
 ```go
 swagger.Setup(app, &swagger.Config{
-    Enabled: ptr(true),
-    Guards:  []gin.HandlerFunc{basicAuth},
+    Path:    "/docs",
+    Enabled: swagger.Enable(true),
+    Guards:  []gin.HandlerFunc{gin.BasicAuth(gin.Accounts{"docs": secret})},
 })
 ```
+
+The guards cover the base path too, not just the assets: a redirect from `/docs`
+that skipped them would confirm the docs exist and hand out their location.
 
 ## Microservices
 

@@ -119,6 +119,33 @@ type Options struct {
 	// ServerOptions are appended last, so they can override anything above.
 	ServerOptions []grpc.ServerOption
 
+	// RegisterServices registers additional gRPC services on the same server,
+	// right after the Messenger service and before the listener is served.
+	//
+	// This is the escape hatch from the trade-off the codec makes. The Messenger
+	// service carries this framework's JSON envelope, which is what lets one
+	// handler serve Redis, NATS and gRPC alike — but it is not a protobuf
+	// contract, so a Node, Java or Python client generated from a .proto file
+	// cannot call it. When you need that, generate the service the usual way and
+	// register it here:
+	//
+	//	grpcmq.Options{
+	//	    Addr: ":50051",
+	//	    RegisterServices: func(srv *grpc.Server) {
+	//	        userpb.RegisterUserServiceServer(srv, &userServer{})
+	//	    },
+	//	}
+	//
+	// The two then share one port, one set of credentials and one interceptor
+	// chain. They coexist because the codec is resolved per call from the
+	// content-subtype rather than forced server-wide: a protobuf client is served
+	// by the protobuf codec and a Nika client by "nika-raw", over the same
+	// connection.
+	//
+	// grpc-go panics on a duplicate service name, so registering a second
+	// Messenger fails loudly at startup instead of silently shadowing it.
+	RegisterServices func(srv *grpc.Server)
+
 	// GracefulStopTimeout bounds a graceful shutdown. Defaults to
 	// DefaultGracefulStopTimeout.
 	GracefulStopTimeout time.Duration

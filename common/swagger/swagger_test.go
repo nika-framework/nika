@@ -85,6 +85,78 @@ func TestSetupMountsOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestBasePathNormalisesEveryAcceptedForm(t *testing.T) {
+	cases := map[string]string{
+		"":               "/swagger",
+		"/docs":          "/docs",
+		"/docs/":         "/docs",
+		"/docs/*any":     "/docs",
+		"/docs/*path":    "/docs",
+		"docs":           "/docs",
+		"/swagger/*any":  "/swagger",
+		"/api/docs/*any": "/api/docs",
+	}
+
+	for path, want := range cases {
+		if got := basePath(path); got != want {
+			t.Errorf("basePath(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
+// The UI lives at index.html and gin-swagger 404s anything else, so the bare
+// path has to redirect — otherwise "/docs" looks like the docs are not mounted.
+func TestSetupRedirectsTheBarePathToTheUI(t *testing.T) {
+	withGinMode(t, gin.DebugMode)
+
+	for _, configured := range []string{"/docs", "/docs/*any"} {
+		t.Run(configured, func(t *testing.T) {
+			app := nika.NewApp(nika.Config{Mode: gin.DebugMode})
+			if !Setup(app, &Config{Path: configured}) {
+				t.Fatal("Setup = false, want true")
+			}
+
+			for _, requested := range []string{"/docs", "/docs/"} {
+				rec := httptest.NewRecorder()
+				app.GetGin().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, requested, nil))
+
+				if rec.Code != http.StatusFound {
+					t.Fatalf("GET %s = %d, want %d", requested, rec.Code, http.StatusFound)
+				}
+				if location := rec.Header().Get("Location"); location != "/docs/index.html" {
+					t.Fatalf("GET %s redirected to %q, want /docs/index.html", requested, location)
+				}
+			}
+
+			rec := httptest.NewRecorder()
+			app.GetGin().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/docs/index.html", nil))
+			if !strings.Contains(rec.Body.String(), "swagger-ui") {
+				t.Fatalf("GET /docs/index.html did not serve the UI: status %d", rec.Code)
+			}
+		})
+	}
+}
+
+func TestSetupGuardsTheBarePathToo(t *testing.T) {
+	withGinMode(t, gin.DebugMode)
+
+	app := nika.NewApp(nika.Config{Mode: gin.DebugMode})
+	Setup(app, &Config{
+		Path:   "/docs",
+		Guards: []gin.HandlerFunc{func(c *gin.Context) { c.AbortWithStatus(http.StatusUnauthorized) }},
+	})
+
+	// A redirect that skips the guard is a disclosure in itself: it confirms the
+	// docs exist and hands out their real location.
+	for _, path := range []string{"/docs", "/docs/", "/docs/index.html"} {
+		rec := httptest.NewRecorder()
+		app.GetGin().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, http.StatusUnauthorized)
+		}
+	}
+}
+
 func TestSetupRunsGuardsBeforeTheDocsHandler(t *testing.T) {
 	withGinMode(t, gin.DebugMode)
 

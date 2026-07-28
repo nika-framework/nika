@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
 	"github.com/nika-framework/nika/common/microservice"
@@ -1003,5 +1005,101 @@ func TestServiceDescriptionShape(t *testing.T) {
 	}
 	if want := fmt.Sprintf("/%s/Stream", ServiceName); MethodStream != want {
 		t.Errorf("MethodStream = %q, want %q", MethodStream, want)
+	}
+}
+
+// --- RegisterServices -----------------------------------------------------
+
+// echoServiceDesc is a second, unrelated service, hand-declared the same way the
+// Messenger is. A generated userpb.RegisterUserServiceServer produces this same
+// shape, so it stands in for one without adding protoc to the test build.
+var echoServiceDesc = grpc.ServiceDesc{
+	ServiceName: "test.echo.v1.Echo",
+	HandlerType: (*echoService)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "Echo",
+			Handler: func(_ any, _ context.Context, dec func(any) error, _ grpc.UnaryServerInterceptor) (any, error) {
+				in := new(rawMessage)
+				if err := dec(in); err != nil {
+					return nil, err
+				}
+				return &rawMessage{body: append([]byte("echo:"), in.body...)}, nil
+			},
+		},
+	},
+	Metadata: "test/echo/v1/echo.nika-raw",
+}
+
+type echoService interface{}
+
+type echoImpl struct{}
+
+// TestRegisterServicesAddsASecondService is the whole point of the hook: a
+// service that is not the Messenger shares the port, and both keep answering.
+//
+// This is the supported way to expose a real protobuf contract — the thing the
+// nika-raw codec deliberately gives up — without running a second server.
+func TestRegisterServicesAddsASecondService(t *testing.T) {
+	var registered bool
+
+	server, addr := serve(t, Options{
+		RegisterServices: func(srv *grpc.Server) {
+			registered = true
+			srv.RegisterService(&echoServiceDesc, echoImpl{})
+		},
+	}, echoDispatcher)
+
+	if !registered {
+		t.Fatal("RegisterServices was never called")
+	}
+
+	ctx := testContext(t)
+
+	// The Messenger still answers.
+	client := dial(t, addr, nil)
+	env, err := microservice.NewEnvelope("echo", map[string]string{"hello": "world"})
+	if err != nil {
+		t.Fatalf("NewEnvelope: %v", err)
+	}
+	reply, err := client.Request(ctx, env, testTimeout)
+	if err != nil {
+		t.Fatalf("the Messenger stopped answering once a second service was added: %v", err)
+	}
+	if reply.Status != 200 {
+		t.Errorf("Messenger reply status = %d, want 200", reply.Status)
+	}
+
+	// And so does the service registered through the hook, on the same port.
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatalf("dialling the second service: %v", err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	out := new(rawMessage)
+	if err := conn.Invoke(ctx, "/test.echo.v1.Echo/Echo",
+		&rawMessage{body: []byte("hello")}, out,
+		grpc.CallContentSubtype(CodecName)); err != nil {
+		t.Fatalf("calling the second service: %v", err)
+	}
+	if got := string(out.body); got != "echo:hello" {
+		t.Errorf("the second service returned %q, want \"echo:hello\"", got)
+	}
+
+	_ = server
+}
+
+// TestRegisterServicesIsOptional keeps the zero value working.
+func TestRegisterServicesIsOptional(t *testing.T) {
+	_, addr := serve(t, Options{}, echoDispatcher)
+
+	client := dial(t, addr, nil)
+	env, err := microservice.NewEnvelope("echo", nil)
+	if err != nil {
+		t.Fatalf("NewEnvelope: %v", err)
+	}
+	if _, err := client.Request(testContext(t), env, testTimeout); err != nil {
+		t.Fatalf("Request with no RegisterServices: %v", err)
 	}
 }
